@@ -1,0 +1,209 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password_hash": "$2a$10$gqr7UNpay/EsLzNmAabdKOfww8InWlyHmxdwiLT8de1rRgDb2A4IG",
+      "full_name": "System Administrator",
+      "role": "owner",
+      "is_active": 1,
+      "created_at": "2026-07-18T05:53:51.193Z",
+      "updated_at": "2026-07-18T05:53:51.193Z"
+    }
+  ],
+  "customers": [
+    {
+      "id": 1,
+      "full_name": "Nina",
+      "phone_number": "9999999999",
+      "alternate_phone": "",
+      "address": "",
+      "photo_path": "active",
+      "registration_date": "2026-07-18",
+      "registration_time": "12:39",
+      "status": "active",
+      "notes": "",
+      "is_deleted": 0,
+      "created_at": "2026-07-18T07:09:33.476Z",
+      "updated_at": "2026-07-18T07:09:33.476Z"
+    },
+    {
+      "id": 2,
+      "full_name": "Mina",
+      "phone_number": "1111111111",
+      "alternate_phone": "",
+      "address": "",
+      "photo_path": "active",
+      "registration_date": "2026-07-18",
+      "registration_time": "12:39",
+      "status": "active",
+      "notes": "",
+      "is_deleted": 0,
+      "created_at": "2026-07-18T07:09:36.327Z",
+      "updated_at": "2026-07-18T07:09:36.327Z"
+    },
+    {
+      "id": 3,
+      "full_name": "Mina",
+      "phone_number": "1111111111",
+      "alternate_phone": "",
+      "address": "",
+      "photo_path": "active",
+      "registration_date": "2026-07-18",
+      "registration_time": "12:49",
+      "status": "active",
+      "notes": "",
+      "is_deleted": 0,
+      "created_at": "2026-07-18T07:19:52.385Z",
+      "updated_at": "2026-07-18T07:19:52.385Z"
+    },
+    {
+      "id": 4,
+      "full_name": "Mina",
+      "phone_number": "1111111111",
+      "alternate_phone": "",
+      "address": "",
+      "photo_path": "active",
+      "registration_date": "2026-07-18",
+      "registration_time": "12:51",
+      "status": "active",
+      "notes": "",
+      "is_deleted": 0,
+      "created_at": "2026-07-18T07:21:48.031Z",
+      "updated_at": "2026-07-18T07:21:48.031Z"
+    },
+    {
+      "id": 5,
+      "full_name": "Mina",
+      "phone_number": "1111111111",
+      "alternate_phone": "",
+      "address": "",
+      "photo_path": "active",
+      "registration_date": "2026-07-18",
+      "registration_time": "12:52",
+      "status": "active",
+      "notes": "",
+      "is_deleted": 0,
+      "created_at": "2026-07-18T07:22:44.427Z",
+      "updated_at": "2026-07-18T07:22:44.427Z"
+    },
+    {
+      "id": 6,
+      "full_name": "Mina",
+      "phone_number": "1111111111",
+      "alternate_phone": "",
+      "address": "",
+      "photo_path": "active",
+      "registration_date": "2026-07-18",
+      "registration_time": "12:54",
+      "status": "active",
+      "notes": "",
+      "is_deleted": 0,
+      "created_at": "2026-07-18T07:24:37.570Z",
+      "updated_at": "2026-07-18T07:24:37.570Z"
+    },
+    {
+      "id": 7,
+      "full_name": "Mina",
+      "phone_number": "1111111111",
+      "alternate_phone": "",
+      "address": "",
+      "photo_path": "active",
+      "registration_date": "2026-07-18",
+      "registration_time": "12:55",
+      "status": "active",
+      "notes": "",
+      "is_deleted": 0,
+      "created_at": "2026-07-18T07:25:22.699Z",
+      "updated_at": "2026-07-18T07:25:22.699Z"
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "Generator",
+      "description": null,
+      "is_active": 1,
+      "created_at": "2026-07-18T05:53:51.194Z"
+    },
+    {
+      "id": 2,
+      "name": "Drill Machine",
+      "description": null,
+      "is_active": 1,
+      "created_at": "2026-07-18T05:53:51.194Z"
+    },
+    {
+      "id": 3,
+      "name": "Welding Machine",
+      "description": null,
+      "is_active": 1,
+      "created_at": "2026-07-18T05:53:51.194Z"
+    },
+    {
+      "id": 4,
+      "name": "Compressor",
+      "description": null,
+      "is_active": 1,
+      "created_at": "2026-07-18T05:53:51.194Z"
+    },
+    {
+      "id": 5,
+      "name": "Cutting Machine",
+      "description": null,
+      "is_active": 1,
+      "created_at": "2026-07-18T05:53:51.194Z"
+    },
+    {
+      "id": 6,
+      "name": "Mixer",
+      "description": null,
+      "is_active": 1,
+      "created_at": "2026-07-18T05:53:51.194Z"
+    },
+    {
+      "id": 7,
+      "name": "Vibrator",
+      "description": null,
+      "is_active": 1,
+      "created_at": "2026-07-18T05:53:51.194Z"
+    },
+    {
+      "id": 8,
+      "name": "Other",
+      "description": null,
+      "is_active": 1,
+      "created_at": "2026-07-18T05:53:51.194Z"
+    }
+  ],
+  "equipment": [
+    {
+      "id": 1,
+      "name": "Test Drill",
+      "category_id": null,
+      "daily_rent": 1000,
+      "security_deposit": 2000,
+      "current_status": "available",
+      "current_location": "Warehouse",
+      "image_path": null,
+      "notes": "",
+      "is_deleted": 0,
+      "created_at": "2026-07-18T07:09:33.482Z",
+      "updated_at": "2026-07-18T07:09:33.482Z"
+    }
+  ],
+  "rentals": [],
+  "settings": [
+    {
+      "id": 1,
+      "shop_name": "Electrical Equipment Rentals",
+      "shop_address": "123 Main Street, City",
+      "shop_phone": "+91 9876543210",
+      "shop_email": null,
+      "shop_logo_path": null,
+      "invoice_prefix": "INV",
+      "currency_symbol": "₹",
+      "updated_at": "2026-07-18T05:53:51.194Z"
+    }
+  ]
+}

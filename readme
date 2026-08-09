@@ -1,0 +1,251 @@
+# RentalERP – Electrical Equipment Rental Management System
+
+RentalERP is a full-stack web application designed to streamline the rental operations of electrical equipment businesses. The system helps manage customers, inventory, rentals, returns, invoices, payments, and reports through a modern, user-friendly interface.
+
+---
+
+## 🚀 Features
+
+- 🔐 Secure User Authentication
+- 👥 Customer Management
+- 📦 Equipment & Inventory Management
+- 📑 Rental Order Management
+- 🔄 Return Processing
+- 💳 Payment Tracking
+- 🧾 Invoice Generation
+- 📊 Dashboard with Business Statistics
+- 📄 PDF Report Generation
+- 📈 Excel Export Support
+- 🔍 Search & Filtering
+- 📱 Responsive User Interface
+
+---
+
+## 🛠 Tech Stack
+
+### Frontend
+- React
+- Vite
+- JavaScript
+- CSS
+
+### Backend
+- Node.js
+- Express.js
+
+### Database
+- SQLite (Better SQLite3)
+
+### Authentication
+- JSON Web Token (JWT)
+- bcryptjs Password Hashing
+
+### Other Libraries
+- Express
+- Multer
+- PDFKit
+- ExcelJS
+- Joi Validation
+- Helmet
+- Morgan
+- CORS
+
+---
+
+## 📁 Project Structure
+
+```
+RentalERP
+│
+├── client/          # React Frontend
+├── server/          # Express Backend
+├── package.json
+└── README.md
+```
+
+---
+
+## ⚙️ Installation
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/yourusername/RentalERP.git
+
+cd RentalERP
+```
+
+### 2. Install Dependencies
+
+```bash
+npm run install:all
+```
+
+or install manually
+
+```bash
+npm install
+
+cd server
+npm install
+
+cd ../client
+npm install
+```
+
+---
+
+## ▶️ Run the Project
+
+From the project root:
+
+```bash
+npm run dev
+```
+
+This starts both:
+
+- Express Backend
+- React Frontend
+
+---
+
+## Build Frontend
+
+```bash
+npm run build
+```
+
+---
+
+## API Health Check
+
+```
+GET /
+
+Response
+
+{
+    "success": true,
+    "message": "Server is running"
+}
+```
+
+---
+
+## 🔒 Authentication
+
+The application uses:
+
+- JWT Authentication
+- Password Hashing with bcrypt
+- Protected API Routes
+
+---
+
+## 📊 Modules
+
+### Dashboard
+- Business overview
+- Rental statistics
+- Revenue summary
+
+### Customers
+- Add Customer
+- Edit Customer
+- Delete Customer
+- Search Customers
+
+### Equipment
+- Add Equipment
+- Track Availability
+- Rental Status
+
+### Rentals
+- Create Rental
+- Return Equipment
+- Rental History
+
+### Payments
+- Record Payments
+- Payment History
+
+### Reports
+- PDF Reports
+- Excel Export
+
+---
+
+## 📸 Screenshots
+
+Add screenshots here.
+
+Example:
+
+```
+screenshots/
+├── login.png
+├── dashboard.png
+├── customers.png
+├── rentals.png
+```
+
+---
+
+## Future Improvements
+
+- Email Notifications
+- SMS Alerts
+- Barcode / QR Code Support
+- Online Payments
+- Multi-Branch Management
+- Role-Based Access Control
+- Cloud Database Support
+- Docker Deployment
+
+---
+
+## Security
+
+- Password Hashing
+- JWT Authentication
+- Input Validation
+- Rate Limiting
+- Secure HTTP Headers
+
+---
+
+## License
+
+This project is licensed under the MIT License.
+
+---
+
+## 👨‍💻 Author
+
+**Muhammed Ribin K.P**
+
+BCA Graduate | Full Stack Developer
+
+GitHub: https://github.com/yourusername
+
+LinkedIn: https://linkedin.com/in/yourprofile
+
+Portfolio: https://portfolioo-2pq5.vercel.app/
+
+Email: mribin405@gmail.com
+
+---
+
+
+# github
+
+update the github
+
+git add .
+git commit -m "topic"
+git push origin main
+
+## ⭐ Support
+
+If you found this project useful, please consider giving it a ⭐ on GitHub.

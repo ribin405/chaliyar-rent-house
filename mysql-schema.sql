@@ -1,0 +1,34 @@
+CREATE DATABASE IF NOT EXISTS rental_erp;
+USE rental_erp;
+
+CREATE TABLE IF NOT EXISTS customers (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(255) NOT NULL,
+  phone_number VARCHAR(50) NOT NULL,
+  alternate_phone VARCHAR(50) DEFAULT NULL,
+  address VARCHAR(500) DEFAULT NULL,
+  registration_date DATE NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'Active',
+  notes TEXT DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS equipment (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  category VARCHAR(50) NOT NULL,
+  daily_rent DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  security_deposit DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  status VARCHAR(20) NOT NULL DEFAULT 'Available',
+  location VARCHAR(255) DEFAULT NULL,
+  notes TEXT DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rentals (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  customer_name VARCHAR(255) NOT NULL,
+  equipment_name VARCHAR(255) NOT NULL,
+  rental_date DATE NOT NULL,
+  expected_return_date DATE NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'Active',
+  amount DECIMAL(10,2) NOT NULL DEFAULT 0.00
+);
