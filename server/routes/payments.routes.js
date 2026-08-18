@@ -1,7 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
 
-const db = require('../config/database');
+const { db } = require('../config/database');
 const validate = require('../middleware/validate');
 const { authenticate } = require('../middleware/auth');
 const { recomputeForInvoice } = require('../utils/paymentStatus');
@@ -17,12 +17,12 @@ const paymentSchema = Joi.object({
   discount: Joi.number().min(0).default(0),
   payment_method: Joi.string().valid('cash', 'card', 'upi', 'bank_transfer', 'other').default('cash'),
   payment_type: Joi.string().valid('rent', 'deposit', 'refund').default('rent'),
-  notes: Joi.string().trim().allow(''),
+  notes: Joi.string().trim().allow('').default(''),
 });
 
 router.use(authenticate);
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { invoice_number: invoiceNumber, customer_id: customerId } = req.query;
 
   let query = `
@@ -46,11 +46,11 @@ router.get('/', (req, res) => {
   }
   query += ' ORDER BY p.id DESC';
 
-  const rows = db.prepare(query).all(...params);
-  res.json({ success: true, data: rows });
+  const result = await db.execute({ sql: query, args: params });
+  res.json({ success: true, data: result.rows });
 });
 
-router.post('/', validate(paymentSchema), (req, res) => {
+router.post('/', validate(paymentSchema), async (req, res) => {
   const value = req.body;
 
   if (value.amount <= 0 && value.discount <= 0) {
@@ -59,23 +59,34 @@ router.post('/', validate(paymentSchema), (req, res) => {
 
   // Any rental row sharing this invoice number works as the anchor for the
   // NOT NULL rental_id column; the payment itself applies to the whole invoice.
-  const invoiceItems = db.prepare('SELECT id FROM rentals WHERE invoice_number = ? ORDER BY id ASC').all(value.invoice_number);
-  if (!invoiceItems.length) {
+  const invoiceItems = await db.execute({
+    sql: 'SELECT id FROM rentals WHERE invoice_number = ? ORDER BY id ASC',
+    args: [value.invoice_number],
+  });
+  if (!invoiceItems.rows.length) {
     return res.status(404).json({ success: false, message: 'Invoice not found' });
   }
 
   const now = new Date();
-  const recordPayment = db.transaction(() => {
-    const result = db.prepare(`
-      INSERT INTO payments (rental_id, invoice_number, amount, discount, payment_method, payment_type, payment_date, notes, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(invoiceItems[0].id, value.invoice_number, value.amount, value.discount, value.payment_method, value.payment_type, now.toISOString().slice(0, 10), value.notes || '', req.user.id, now.toISOString());
-    recomputeForInvoice(value.invoice_number);
-    return result;
-  });
+  const tx = await db.transaction('write');
+  let insertedId;
+  try {
+    const result = await tx.execute({
+      sql: `INSERT INTO payments (rental_id, invoice_number, amount, discount, payment_method, payment_type, payment_date, notes, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [invoiceItems.rows[0].id, value.invoice_number, value.amount, value.discount, value.payment_method, value.payment_type, now.toISOString().slice(0, 10), value.notes || '', req.user.id, now.toISOString()],
+    });
+    insertedId = Number(result.lastInsertRowid);
+    await recomputeForInvoice(value.invoice_number, tx);
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  } finally {
+    tx.close();
+  }
 
-  const result = recordPayment();
-  res.status(201).json({ success: true, data: { id: result.lastInsertRowid } });
+  res.status(201).json({ success: true, data: { id: insertedId } });
 });
 
 module.exports = router;

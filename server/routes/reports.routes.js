@@ -1,14 +1,14 @@
 const express = require('express');
 const ExcelJS = require('exceljs');
 
-const db = require('../config/database');
+const { db } = require('../config/database');
 const { authenticate, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
 router.use(authenticate, requireRole('owner'));
 
-router.get('/revenue', (req, res) => {
+router.get('/revenue', async (req, res) => {
   const { from, to } = req.query;
   const clauses = ["payment_type != 'refund'"];
   const params = [];
@@ -21,23 +21,26 @@ router.get('/revenue', (req, res) => {
     params.push(to);
   }
 
-  const rows = db.prepare(`
-    SELECT payment_date, SUM(amount) AS total
-    FROM payments
-    WHERE ${clauses.join(' AND ')}
-    GROUP BY payment_date ORDER BY payment_date ASC
-  `).all(...params);
+  const [byDateResult, summaryResult] = await Promise.all([
+    db.execute({
+      sql: `SELECT payment_date, SUM(amount) AS total
+            FROM payments
+            WHERE ${clauses.join(' AND ')}
+            GROUP BY payment_date ORDER BY payment_date ASC`,
+      args: params,
+    }),
+    db.execute({
+      sql: `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
+            FROM payments WHERE ${clauses.join(' AND ')}`,
+      args: params,
+    }),
+  ]);
 
-  const summary = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
-    FROM payments WHERE ${clauses.join(' AND ')}
-  `).get(...params);
-
-  res.json({ success: true, data: { byDate: rows, total: summary.total, count: summary.count } });
+  res.json({ success: true, data: { byDate: byDateResult.rows, total: summaryResult.rows[0].total, count: summaryResult.rows[0].count } });
 });
 
 router.get('/rentals/export', async (req, res) => {
-  const rows = db.prepare(`
+  const result = await db.execute(`
     SELECT r.invoice_number, c.full_name AS customer_name, e.name AS equipment_name,
            r.rental_date, r.rental_time, r.expected_return_date, r.expected_return_time,
            r.actual_return_date, r.actual_return_time, r.rental_days, r.daily_rate, r.deposit, r.total_rent, r.late_fee, r.damage_charge,
@@ -46,7 +49,7 @@ router.get('/rentals/export', async (req, res) => {
     JOIN customers c ON c.id = r.customer_id
     JOIN equipment e ON e.id = r.equipment_id
     ORDER BY r.id DESC
-  `).all();
+  `);
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Rentals');
@@ -69,7 +72,7 @@ router.get('/rentals/export', async (req, res) => {
     { header: 'Rental Status', key: 'rental_status', width: 14 },
   ];
   sheet.getRow(1).font = { bold: true };
-  rows.forEach((row) => sheet.addRow({
+  result.rows.forEach((row) => sheet.addRow({
     ...row,
     rental_date: `${row.rental_date} ${row.rental_time}`,
     expected_return_date: `${row.expected_return_date} ${row.expected_return_time}`,

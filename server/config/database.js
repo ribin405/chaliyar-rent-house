@@ -1,20 +1,23 @@
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
-const Database = require('better-sqlite3');
+const { createClient } = require('@libsql/client');
 
+// TURSO_DATABASE_URL/TURSO_AUTH_TOKEN point at a hosted libSQL (Turso) database
+// in production (needed on Vercel — no persistent local disk there). Falling
+// back to a local file keeps `npm run dev` working with zero external account.
 const DB_DIR = path.join(__dirname, '..', 'data');
-const DB_PATH = path.join(DB_DIR, 'rental-erp.sqlite');
-
 if (!fs.existsSync(DB_DIR)) {
   fs.mkdirSync(DB_DIR, { recursive: true });
 }
+const LOCAL_DB_PATH = path.join(DB_DIR, 'rental-erp.sqlite');
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const db = createClient({
+  url: process.env.TURSO_DATABASE_URL || `file:${LOCAL_DB_PATH}`,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
 
-db.exec(`
+const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
@@ -109,68 +112,94 @@ db.exec(`
     currency_symbol TEXT NOT NULL DEFAULT '₹',
     updated_at TEXT NOT NULL
   );
-`);
+`;
 
 // Add columns to tables that pre-date this migration, one at a time (SQLite
 // has no "ADD COLUMN IF NOT EXISTS", so each addition is guarded manually).
-function ensureColumn(table, column, definition) {
-  const existing = db.prepare(`PRAGMA table_info(${table})`).all();
-  const hasColumn = existing.some((col) => col.name === column);
+async function ensureColumn(table, column, definition) {
+  const existing = await db.execute(`PRAGMA table_info(${table})`);
+  const hasColumn = existing.rows.some((col) => col.name === column);
   if (!hasColumn) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }
 
-ensureColumn('rentals', 'actual_return_date', 'TEXT');
-ensureColumn('rentals', 'actual_return_time', 'TEXT');
-ensureColumn('rentals', 'late_fee', "REAL NOT NULL DEFAULT 0");
-ensureColumn('rentals', 'damage_charge', "REAL NOT NULL DEFAULT 0");
-ensureColumn('rentals', 'refund_amount', "REAL NOT NULL DEFAULT 0");
-ensureColumn('rentals', 'return_notes', "TEXT DEFAULT ''");
-ensureColumn('payments', 'discount', 'REAL NOT NULL DEFAULT 0');
-ensureColumn('payments', 'invoice_number', 'TEXT');
-
-// One invoice can cover several equipment items (rentals rows). Payments settle
-// the whole invoice at once, so backfill invoice_number for any pre-existing
-// payment rows that only recorded a single rental_id.
-db.prepare(`
-  UPDATE payments SET invoice_number = (SELECT invoice_number FROM rentals WHERE rentals.id = payments.rental_id)
-  WHERE invoice_number IS NULL
-`).run();
-
-// Rentals resolve customers by phone number, so this lookup runs on every create/edit.
-db.exec('CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone_number)');
-db.exec('CREATE INDEX IF NOT EXISTS idx_rentals_invoice ON rentals(invoice_number)');
-db.exec('CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_number)');
-
-function ensureSeedData() {
-  const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
-  if (!existingAdmin) {
+async function ensureSeedData() {
+  const existingAdmin = await db.execute({ sql: 'SELECT id FROM users WHERE username = ?', args: ['admin'] });
+  if (!existingAdmin.rows.length) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare(`
-      INSERT INTO users (username, password_hash, full_name, role, is_active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run('admin', hash, 'System Administrator', 'owner', 1, new Date().toISOString(), new Date().toISOString());
+    await db.execute({
+      sql: `INSERT INTO users (username, password_hash, full_name, role, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: ['admin', hash, 'System Administrator', 'owner', 1, new Date().toISOString(), new Date().toISOString()],
+    });
   }
 
-  const existingSettings = db.prepare('SELECT id FROM shop_settings WHERE id = 1').get();
-  if (!existingSettings) {
-    db.prepare(`
-      INSERT INTO shop_settings (id, shop_name, shop_address, shop_phone, shop_email, shop_logo_path, invoice_prefix, currency_symbol, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(1, 'Electrical Equipment Rentals', '123 Main Street, City', '+91 9876543210', null, null, 'INV', '₹', new Date().toISOString());
+  const existingSettings = await db.execute('SELECT id FROM shop_settings WHERE id = 1');
+  if (!existingSettings.rows.length) {
+    await db.execute({
+      sql: `INSERT INTO shop_settings (id, shop_name, shop_address, shop_phone, shop_email, shop_logo_path, invoice_prefix, currency_symbol, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [1, 'Electrical Equipment Rentals', '123 Main Street, City', '+91 9876543210', null, null, 'INV', '₹', new Date().toISOString()],
+    });
   }
 
   const defaultCategories = ['Generator', 'Drill Machine', 'Welding Machine', 'Compressor', 'Cutting Machine', 'Mixer', 'Vibrator', 'Other'];
   for (const name of defaultCategories) {
-    const existing = db.prepare('SELECT id FROM categories WHERE name = ?').get(name);
-    if (!existing) {
-      db.prepare('INSERT INTO categories (name, description, is_active, created_at) VALUES (?, ?, ?, ?)')
-        .run(name, null, 1, new Date().toISOString());
+    const existing = await db.execute({ sql: 'SELECT id FROM categories WHERE name = ?', args: [name] });
+    if (!existing.rows.length) {
+      await db.execute({
+        sql: 'INSERT INTO categories (name, description, is_active, created_at) VALUES (?, ?, ?, ?)',
+        args: [name, null, 1, new Date().toISOString()],
+      });
     }
   }
 }
 
-ensureSeedData();
+async function initialize() {
+  try {
+    await db.execute('PRAGMA journal_mode = WAL');
+    await db.execute('PRAGMA foreign_keys = ON');
+  } catch {
+    // Remote libSQL connections manage journaling/foreign keys server-side and
+    // may reject these pragmas — harmless to skip them in that case.
+  }
 
-module.exports = db;
+  await db.executeMultiple(SCHEMA_SQL);
+
+  await ensureColumn('rentals', 'actual_return_date', 'TEXT');
+  await ensureColumn('rentals', 'actual_return_time', 'TEXT');
+  await ensureColumn('rentals', 'late_fee', 'REAL NOT NULL DEFAULT 0');
+  await ensureColumn('rentals', 'damage_charge', 'REAL NOT NULL DEFAULT 0');
+  await ensureColumn('rentals', 'refund_amount', 'REAL NOT NULL DEFAULT 0');
+  await ensureColumn('rentals', 'return_notes', "TEXT DEFAULT ''");
+  await ensureColumn('payments', 'discount', 'REAL NOT NULL DEFAULT 0');
+  await ensureColumn('payments', 'invoice_number', 'TEXT');
+
+  // One invoice can cover several equipment items (rentals rows). Payments settle
+  // the whole invoice at once, so backfill invoice_number for any pre-existing
+  // payment rows that only recorded a single rental_id.
+  await db.execute(`
+    UPDATE payments SET invoice_number = (SELECT invoice_number FROM rentals WHERE rentals.id = payments.rental_id)
+    WHERE invoice_number IS NULL
+  `);
+
+  // Rentals resolve customers by phone number, so this lookup runs on every create/edit.
+  await db.execute('CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone_number)');
+  await db.execute('CREATE INDEX IF NOT EXISTS idx_rentals_invoice ON rentals(invoice_number)');
+  await db.execute('CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_number)');
+
+  await ensureSeedData();
+}
+
+// Memoized so schema/seed setup runs once per warm process (persistent server
+// locally, or a warm serverless container on Vercel) instead of on every call.
+let readyPromise = null;
+function ready() {
+  if (!readyPromise) {
+    readyPromise = initialize();
+  }
+  return readyPromise;
+}
+
+module.exports = { db, ready };

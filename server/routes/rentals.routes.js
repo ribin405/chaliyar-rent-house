@@ -2,7 +2,7 @@ const express = require('express');
 const Joi = require('joi');
 const PDFDocument = require('pdfkit');
 
-const db = require('../config/database');
+const { db } = require('../config/database');
 const validate = require('../middleware/validate');
 const { authenticate } = require('../middleware/auth');
 const { recomputeForInvoice, recomputeForRental } = require('../utils/paymentStatus');
@@ -13,11 +13,11 @@ const router = express.Router();
 const rentalSchema = Joi.object({
   customer_name: Joi.string().trim().required(),
   customer_phone: Joi.string().trim().required(),
-  customer_address: Joi.string().trim().allow(''),
+  customer_address: Joi.string().trim().allow('').default(''),
   equipment_id: Joi.number().integer().positive().required(),
   rental_date: Joi.string().trim().required(),
   expected_return_date: Joi.string().trim().required(),
-  expected_return_time: Joi.string().trim().allow(''),
+  expected_return_time: Joi.string().trim().allow('').default(''),
   rental_days: Joi.number().integer().min(1).default(1),
   daily_rate: Joi.number().min(0).required(),
   deposit: Joi.number().min(0).default(0),
@@ -35,39 +35,48 @@ const rentalItemSchema = Joi.object({
 const createRentalSchema = Joi.object({
   customer_name: Joi.string().trim().required(),
   customer_phone: Joi.string().trim().required(),
-  customer_address: Joi.string().trim().allow(''),
+  customer_address: Joi.string().trim().allow('').default(''),
   rental_date: Joi.string().trim().required(),
   expected_return_date: Joi.string().trim().required(),
-  expected_return_time: Joi.string().trim().allow(''),
+  expected_return_time: Joi.string().trim().allow('').default(''),
   items: Joi.array().items(rentalItemSchema).min(1).required(),
 });
 
 // Customers are looked up (and created if needed) by phone number, which acts
 // as the natural dedup key for rentals created by typing a name in directly.
-const resolveCustomerByPhone = (name, phone, address) => {
+// `executor` defaults to the top-level db client, but callers running inside a
+// transaction should pass that transaction object so the write stays atomic.
+const resolveCustomerByPhone = async (name, phone, address, executor = db) => {
   const trimmedPhone = phone.trim();
-  const existing = db.prepare('SELECT id, full_name FROM customers WHERE phone_number = ? AND is_deleted = 0').get(trimmedPhone);
+  const existingResult = await executor.execute({
+    sql: 'SELECT id, full_name FROM customers WHERE phone_number = ? AND is_deleted = 0',
+    args: [trimmedPhone],
+  });
+  const existing = existingResult.rows[0];
   const now = new Date();
 
   if (existing) {
     if (existing.full_name !== name || address) {
-      db.prepare('UPDATE customers SET full_name = ?, address = COALESCE(NULLIF(?, \'\'), address), updated_at = ? WHERE id = ?')
-        .run(name, address || '', now.toISOString(), existing.id);
+      await executor.execute({
+        sql: `UPDATE customers SET full_name = ?, address = COALESCE(NULLIF(?, ''), address), updated_at = ? WHERE id = ?`,
+        args: [name, address || '', now.toISOString(), existing.id],
+      });
     }
     return existing.id;
   }
 
-  const result = db.prepare(`
-    INSERT INTO customers (full_name, phone_number, alternate_phone, address, registration_date, registration_time, status, notes, is_deleted, created_at, updated_at)
-    VALUES (?, ?, '', ?, ?, ?, 'active', '', 0, ?, ?)
-  `).run(name, trimmedPhone, address || '', now.toISOString().slice(0, 10), now.toTimeString().slice(0, 5), now.toISOString(), now.toISOString());
-  return result.lastInsertRowid;
+  const result = await executor.execute({
+    sql: `INSERT INTO customers (full_name, phone_number, alternate_phone, address, registration_date, registration_time, status, notes, is_deleted, created_at, updated_at)
+          VALUES (?, ?, '', ?, ?, ?, 'active', '', 0, ?, ?)`,
+    args: [name, trimmedPhone, address || '', now.toISOString().slice(0, 10), now.toTimeString().slice(0, 5), now.toISOString(), now.toISOString()],
+  });
+  return Number(result.lastInsertRowid);
 };
 
 const returnSchema = Joi.object({
   actual_return_date: Joi.string().trim().required(),
   damage_charge: Joi.number().min(0).default(0),
-  return_notes: Joi.string().trim().allow(''),
+  return_notes: Joi.string().trim().allow('').default(''),
 });
 
 const RENTAL_LIST_SELECT = `
@@ -85,29 +94,30 @@ const RENTAL_LIST_SELECT = `
 router.use(authenticate);
 
 // Lazily flip any active rental past its expected return date to "overdue".
-const refreshOverdueStatuses = () => {
-  db.prepare(`
+const refreshOverdueStatuses = async () => {
+  await db.execute(`
     UPDATE rentals SET rental_status = 'overdue'
     WHERE rental_status = 'active' AND date(expected_return_date) < date('now')
-  `).run();
+  `);
 };
 
-router.get('/', (req, res) => {
-  refreshOverdueStatuses();
-  const rows = db.prepare(`${RENTAL_LIST_SELECT} ORDER BY r.id DESC`).all();
-  res.json({ success: true, data: rows.map((row) => ({ ...row, amount: row.final_amount })) });
+router.get('/', async (req, res) => {
+  await refreshOverdueStatuses();
+  const result = await db.execute(`${RENTAL_LIST_SELECT} ORDER BY r.id DESC`);
+  res.json({ success: true, data: result.rows.map((row) => ({ ...row, amount: row.final_amount })) });
 });
 
-router.get('/:id', (req, res) => {
-  refreshOverdueStatuses();
-  const row = db.prepare(`${RENTAL_LIST_SELECT} WHERE r.id = ?`).get(req.params.id);
+router.get('/:id', async (req, res) => {
+  await refreshOverdueStatuses();
+  const result = await db.execute({ sql: `${RENTAL_LIST_SELECT} WHERE r.id = ?`, args: [req.params.id] });
+  const row = result.rows[0];
   if (!row) {
     return res.status(404).json({ success: false, message: 'Rental not found' });
   }
   res.json({ success: true, data: row });
 });
 
-router.post('/', validate(createRentalSchema), (req, res) => {
+router.post('/', validate(createRentalSchema), async (req, res) => {
   const value = req.body;
 
   const equipmentIds = value.items.map((item) => item.equipment_id);
@@ -116,7 +126,11 @@ router.post('/', validate(createRentalSchema), (req, res) => {
   }
 
   for (const item of value.items) {
-    const equipmentRow = db.prepare('SELECT id, current_status, name FROM equipment WHERE id = ? AND is_deleted = 0').get(item.equipment_id);
+    const equipmentResult = await db.execute({
+      sql: 'SELECT id, current_status, name FROM equipment WHERE id = ? AND is_deleted = 0',
+      args: [item.equipment_id],
+    });
+    const equipmentRow = equipmentResult.rows[0];
     if (!equipmentRow) {
       return res.status(404).json({ success: false, message: `Equipment #${item.equipment_id} not found` });
     }
@@ -130,28 +144,40 @@ router.post('/', validate(createRentalSchema), (req, res) => {
   const registeredTime = now.toTimeString().slice(0, 5);
   const expectedReturnTime = value.expected_return_time || registeredTime;
 
-  const createRentals = db.transaction(() => {
-    const customerId = resolveCustomerByPhone(value.customer_name, value.customer_phone, value.customer_address);
-    const stmt = db.prepare(`
-      INSERT INTO rentals (invoice_number, customer_id, equipment_id, rental_date, rental_time, expected_return_date, expected_return_time, rental_days, daily_rate, deposit, total_rent, final_amount, payment_status, rental_status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'active', ?, ?, ?)
-    `);
-    return value.items.map((item) => {
+  const tx = await db.transaction('write');
+  let ids;
+  try {
+    const customerId = await resolveCustomerByPhone(value.customer_name, value.customer_phone, value.customer_address, tx);
+    ids = [];
+    for (const item of value.items) {
       const totalRent = item.daily_rate * item.rental_days;
-      const result = stmt.run(invoiceNumber, customerId, item.equipment_id, value.rental_date, registeredTime, value.expected_return_date, expectedReturnTime, item.rental_days, item.daily_rate, item.deposit, totalRent, totalRent, req.user.id, now.toISOString(), now.toISOString());
-      db.prepare("UPDATE equipment SET current_status = 'rented', updated_at = ? WHERE id = ?").run(now.toISOString(), item.equipment_id);
-      return result.lastInsertRowid;
-    });
-  });
+      const result = await tx.execute({
+        sql: `INSERT INTO rentals (invoice_number, customer_id, equipment_id, rental_date, rental_time, expected_return_date, expected_return_time, rental_days, daily_rate, deposit, total_rent, final_amount, payment_status, rental_status, created_by, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'active', ?, ?, ?)`,
+        args: [invoiceNumber, customerId, item.equipment_id, value.rental_date, registeredTime, value.expected_return_date, expectedReturnTime, item.rental_days, item.daily_rate, item.deposit, totalRent, totalRent, req.user.id, now.toISOString(), now.toISOString()],
+      });
+      await tx.execute({
+        sql: "UPDATE equipment SET current_status = 'rented', updated_at = ? WHERE id = ?",
+        args: [now.toISOString(), item.equipment_id],
+      });
+      ids.push(Number(result.lastInsertRowid));
+    }
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  } finally {
+    tx.close();
+  }
 
-  const ids = createRentals();
   res.status(201).json({ success: true, data: { ids, id: ids[0], invoice_number: invoiceNumber } });
 });
 
-router.put('/:id', validate(rentalSchema), (req, res) => {
+router.put('/:id', validate(rentalSchema), async (req, res) => {
   const value = req.body;
 
-  const existing = db.prepare('SELECT equipment_id, rental_status FROM rentals WHERE id = ?').get(req.params.id);
+  const existingResult = await db.execute({ sql: 'SELECT equipment_id, rental_status FROM rentals WHERE id = ?', args: [req.params.id] });
+  const existing = existingResult.rows[0];
   if (!existing) {
     return res.status(404).json({ success: false, message: 'Rental not found' });
   }
@@ -162,9 +188,12 @@ router.put('/:id', validate(rentalSchema), (req, res) => {
   // Swapping which equipment a rental covers must keep equipment.current_status
   // in sync, or the old item gets stuck "rented" forever and the new one stays
   // "available" while it's actually checked out — a double-booking waiting to happen.
-  let newEquipment = null;
   if (equipmentChanged) {
-    newEquipment = db.prepare('SELECT id, current_status, name FROM equipment WHERE id = ? AND is_deleted = 0').get(value.equipment_id);
+    const newEquipmentResult = await db.execute({
+      sql: 'SELECT id, current_status, name FROM equipment WHERE id = ? AND is_deleted = 0',
+      args: [value.equipment_id],
+    });
+    const newEquipment = newEquipmentResult.rows[0];
     if (!newEquipment) {
       return res.status(404).json({ success: false, message: 'Equipment not found' });
     }
@@ -177,52 +206,69 @@ router.put('/:id', validate(rentalSchema), (req, res) => {
   const expectedReturnTime = value.expected_return_time || new Date().toTimeString().slice(0, 5);
   const now = new Date().toISOString();
 
-  const updateRental = db.transaction(() => {
-    const customerId = resolveCustomerByPhone(value.customer_name, value.customer_phone, value.customer_address);
-    const stmt = db.prepare(`
-      UPDATE rentals SET customer_id = ?, equipment_id = ?, rental_date = ?, expected_return_date = ?, expected_return_time = ?, rental_days = ?, daily_rate = ?, deposit = ?, total_rent = ?, final_amount = ? + late_fee + damage_charge, updated_at = ?
-      WHERE id = ?
-    `);
-    const runResult = stmt.run(customerId, value.equipment_id, value.rental_date, value.expected_return_date, expectedReturnTime, value.rental_days, value.daily_rate, value.deposit, totalRent, totalRent, now, req.params.id);
+  const tx = await db.transaction('write');
+  let rowsAffected;
+  try {
+    const customerId = await resolveCustomerByPhone(value.customer_name, value.customer_phone, value.customer_address, tx);
+    const runResult = await tx.execute({
+      sql: `UPDATE rentals SET customer_id = ?, equipment_id = ?, rental_date = ?, expected_return_date = ?, expected_return_time = ?, rental_days = ?, daily_rate = ?, deposit = ?, total_rent = ?, final_amount = ? + late_fee + damage_charge, updated_at = ?
+            WHERE id = ?`,
+      args: [customerId, value.equipment_id, value.rental_date, value.expected_return_date, expectedReturnTime, value.rental_days, value.daily_rate, value.deposit, totalRent, totalRent, now, req.params.id],
+    });
+    rowsAffected = runResult.rowsAffected;
 
     if (equipmentChanged && isOpen) {
-      db.prepare("UPDATE equipment SET current_status = 'available', updated_at = ? WHERE id = ?").run(now, existing.equipment_id);
-      db.prepare("UPDATE equipment SET current_status = 'rented', updated_at = ? WHERE id = ?").run(now, value.equipment_id);
+      await tx.execute({ sql: "UPDATE equipment SET current_status = 'available', updated_at = ? WHERE id = ?", args: [now, existing.equipment_id] });
+      await tx.execute({ sql: "UPDATE equipment SET current_status = 'rented', updated_at = ? WHERE id = ?", args: [now, value.equipment_id] });
     }
 
-    recomputeForRental(req.params.id);
-    return runResult;
-  });
+    await recomputeForRental(req.params.id, tx);
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  } finally {
+    tx.close();
+  }
 
-  const result = updateRental();
-  if (!result.changes) {
+  if (!rowsAffected) {
     return res.status(404).json({ success: false, message: 'Rental not found' });
   }
   res.json({ success: true, data: { id: Number(req.params.id) } });
 });
 
-router.delete('/:id', (req, res) => {
-  const rental = db.prepare('SELECT equipment_id, rental_status, invoice_number FROM rentals WHERE id = ?').get(req.params.id);
+router.delete('/:id', async (req, res) => {
+  const rentalResult = await db.execute({ sql: 'SELECT equipment_id, rental_status, invoice_number FROM rentals WHERE id = ?', args: [req.params.id] });
+  const rental = rentalResult.rows[0];
   if (!rental) {
     return res.status(404).json({ success: false, message: 'Rental not found' });
   }
-  const deleteRental = db.transaction(() => {
-    db.prepare('DELETE FROM rentals WHERE id = ?').run(req.params.id);
+
+  const tx = await db.transaction('write');
+  try {
+    await tx.execute({ sql: 'DELETE FROM rentals WHERE id = ?', args: [req.params.id] });
     if (rental.rental_status === 'active' || rental.rental_status === 'overdue') {
-      db.prepare("UPDATE equipment SET current_status = 'available', updated_at = ? WHERE id = ?").run(new Date().toISOString(), rental.equipment_id);
+      await tx.execute({ sql: "UPDATE equipment SET current_status = 'available', updated_at = ? WHERE id = ?", args: [new Date().toISOString(), rental.equipment_id] });
     }
     // Removing one item changes the invoice's total owed, so the remaining
     // items' shared payment_status needs to be re-derived (if any remain).
-    recomputeForInvoice(rental.invoice_number);
-  });
-  deleteRental();
+    await recomputeForInvoice(rental.invoice_number, tx);
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  } finally {
+    tx.close();
+  }
+
   res.json({ success: true, data: { id: Number(req.params.id) } });
 });
 
-router.post('/:id/return', validate(returnSchema), (req, res) => {
+router.post('/:id/return', validate(returnSchema), async (req, res) => {
   const { actual_return_date: actualReturnDate, damage_charge: damageCharge, return_notes: returnNotes } = req.body;
 
-  const rental = db.prepare('SELECT * FROM rentals WHERE id = ?').get(req.params.id);
+  const rentalResult = await db.execute({ sql: 'SELECT * FROM rentals WHERE id = ?', args: [req.params.id] });
+  const rental = rentalResult.rows[0];
   if (!rental) {
     return res.status(404).json({ success: false, message: 'Rental not found' });
   }
@@ -238,30 +284,50 @@ router.post('/:id/return', validate(returnSchema), (req, res) => {
   const finalAmount = rental.total_rent + lateFee + damageCharge;
   const now = new Date();
 
-  const processReturn = db.transaction(() => {
-    db.prepare(`
-      UPDATE rentals SET actual_return_date = ?, actual_return_time = ?, late_fee = ?, damage_charge = ?, refund_amount = ?, final_amount = ?, return_notes = ?, rental_status = 'completed', updated_at = ?
-      WHERE id = ?
-    `).run(actualReturnDate, now.toTimeString().slice(0, 5), lateFee, damageCharge, refundAmount, finalAmount, returnNotes || '', now.toISOString(), req.params.id);
-    db.prepare("UPDATE equipment SET current_status = 'available', updated_at = ? WHERE id = ?").run(now.toISOString(), rental.equipment_id);
+  const tx = await db.transaction('write');
+  try {
+    await tx.execute({
+      sql: `UPDATE rentals SET actual_return_date = ?, actual_return_time = ?, late_fee = ?, damage_charge = ?, refund_amount = ?, final_amount = ?, return_notes = ?, rental_status = 'completed', updated_at = ?
+            WHERE id = ?`,
+      args: [actualReturnDate, now.toTimeString().slice(0, 5), lateFee, damageCharge, refundAmount, finalAmount, returnNotes || '', now.toISOString(), req.params.id],
+    });
+    await tx.execute({ sql: "UPDATE equipment SET current_status = 'available', updated_at = ? WHERE id = ?", args: [now.toISOString(), rental.equipment_id] });
     // final_amount just changed (late fee/damage charge), so re-derive payment_status
     // for the whole invoice against the new amount owed instead of leaving a stale
     // "paid" from before.
-    recomputeForRental(req.params.id);
-  });
-  processReturn();
+    await recomputeForRental(req.params.id, tx);
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  } finally {
+    tx.close();
+  }
 
   res.json({ success: true, data: { id: Number(req.params.id), late_fee: lateFee, damage_charge: damageCharge, refund_amount: refundAmount, final_amount: finalAmount } });
 });
 
-router.get('/:id/invoice', (req, res) => {
-  const anchor = db.prepare(`${RENTAL_LIST_SELECT} WHERE r.id = ?`).get(req.params.id);
+router.get('/:id/invoice', async (req, res) => {
+  const anchorResult = await db.execute({ sql: `${RENTAL_LIST_SELECT} WHERE r.id = ?`, args: [req.params.id] });
+  const anchor = anchorResult.rows[0];
   if (!anchor) {
     return res.status(404).json({ success: false, message: 'Rental not found' });
   }
+
   // A single invoice can cover several equipment items rented together.
-  const items = db.prepare(`${RENTAL_LIST_SELECT} WHERE r.invoice_number = ? ORDER BY r.id ASC`).all(anchor.invoice_number);
-  const shop = db.prepare('SELECT * FROM shop_settings WHERE id = 1').get();
+  const [itemsResult, shopResult, paymentTotalsResult] = await Promise.all([
+    db.execute({ sql: `${RENTAL_LIST_SELECT} WHERE r.invoice_number = ? ORDER BY r.id ASC`, args: [anchor.invoice_number] }),
+    db.execute('SELECT * FROM shop_settings WHERE id = 1'),
+    db.execute({
+      sql: `SELECT
+              COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN amount ELSE 0 END), 0) AS paidRent,
+              COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN discount ELSE 0 END), 0) AS discountTotal
+            FROM payments WHERE invoice_number = ?`,
+      args: [anchor.invoice_number],
+    }),
+  ]);
+  const items = itemsResult.rows;
+  const shop = shopResult.rows[0];
   const currency = shop?.currency_symbol || '₹';
 
   const totals = items.reduce((acc, item) => ({
@@ -273,12 +339,7 @@ router.get('/:id/invoice', (req, res) => {
     final_amount: acc.final_amount + item.final_amount,
   }), { total_rent: 0, late_fee: 0, damage_charge: 0, deposit: 0, refund_amount: 0, final_amount: 0 });
 
-  const paymentTotals = db.prepare(`
-    SELECT
-      COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN amount ELSE 0 END), 0) AS paidRent,
-      COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN discount ELSE 0 END), 0) AS discountTotal
-    FROM payments WHERE invoice_number = ?
-  `).get(anchor.invoice_number);
+  const paymentTotals = paymentTotalsResult.rows[0];
   const amountSettled = paymentTotals.paidRent + paymentTotals.discountTotal;
   const balanceDue = Math.max(0, totals.final_amount - amountSettled);
 

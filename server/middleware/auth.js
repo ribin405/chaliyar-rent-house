@@ -5,13 +5,13 @@
  */
 
 const jwt = require('jsonwebtoken');
-const db = require('../config/database');
+const { db } = require('../config/database');
 
 /**
  * Verify JWT token from Authorization header.
  * Attaches the decoded user object to req.user.
  */
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -22,7 +22,11 @@ function authenticate(req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Verify user still exists and is active
-    const user = db.prepare('SELECT id, username, full_name, role, is_active FROM users WHERE id = ?').get(decoded.id);
+    const result = await db.execute({
+      sql: 'SELECT id, username, full_name, role, is_active FROM users WHERE id = ?',
+      args: [decoded.id],
+    });
+    const user = result.rows[0];
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid token. User not found.' });
     }

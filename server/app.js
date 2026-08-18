@@ -7,6 +7,7 @@ const dotenv = require('dotenv');
 const path = require('path');
 
 const errorHandler = require('./middleware/errorHandler');
+const { ready } = require('./config/database');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -33,6 +34,17 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 app.use(limiter);
+
+// Schema/seed setup is now async (networked Turso/libSQL client). Memoized in
+// database.js, so this only does real work once per warm process/container.
+app.use(async (req, res, next) => {
+  try {
+    await ready();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'Server is running' });

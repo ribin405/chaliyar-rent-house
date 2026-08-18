@@ -3,7 +3,7 @@ const Joi = require('joi');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-const db = require('../config/database');
+const { db } = require('../config/database');
 const validate = require('../middleware/validate');
 const { authenticate } = require('../middleware/auth');
 
@@ -14,10 +14,14 @@ const loginSchema = Joi.object({
   password: Joi.string().required(),
 });
 
-router.post('/login', validate(loginSchema), (req, res) => {
+router.post('/login', validate(loginSchema), async (req, res) => {
   const { username, password } = req.body;
 
-  const user = db.prepare('SELECT id, username, password_hash, full_name, role, is_active FROM users WHERE username = ?').get(username);
+  const result = await db.execute({
+    sql: 'SELECT id, username, password_hash, full_name, role, is_active FROM users WHERE username = ?',
+    args: [username],
+  });
+  const user = result.rows[0];
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ success: false, message: 'Invalid username or password' });
   }
