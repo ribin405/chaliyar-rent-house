@@ -23,15 +23,15 @@ async function recomputeForInvoice(invoiceNumber, executor = db) {
   const totalsResult = await executor.execute({
     sql: `
       SELECT
-        COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN amount ELSE 0 END), 0) AS paidRent,
-        COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN discount ELSE 0 END), 0) AS discountTotal
+        COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN amount ELSE 0 END), 0) AS paid_rent,
+        COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN discount ELSE 0 END), 0) AS discount_total
       FROM payments WHERE invoice_number = ?
     `,
     args: [invoiceNumber],
   });
   const totals = totalsResult.rows[0];
 
-  const settled = totals.paidRent + totals.discountTotal;
+  const settled = totals.paid_rent + totals.discount_total;
   let status = 'pending';
   if (totalOwed > 0 && settled >= totalOwed) {
     status = 'paid';

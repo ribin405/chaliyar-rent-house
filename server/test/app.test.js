@@ -3,12 +3,17 @@ const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 
+// Loaded here (not just inside the spawned app.js processes) so TEST_DATABASE_URL
+// from the root .env is visible when building each child's env below — pointing
+// tests at a separate Neon database instead of whatever DATABASE_URL points at.
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+
 const serverPath = path.join(__dirname, '..', 'app.js');
 
 test('server exposes a health endpoint', async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: '4101', NODE_ENV: 'test' },
+    env: { ...process.env, PORT: '4101', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -36,7 +41,7 @@ test('server exposes a health endpoint', async () => {
 test('login returns a data envelope with the auth token', async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: '4102', NODE_ENV: 'test' },
+    env: { ...process.env, PORT: '4102', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -69,7 +74,7 @@ test('login returns a data envelope with the auth token', async () => {
 test('creates a rental through the API', async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: '4102', NODE_ENV: 'test' },
+    env: { ...process.env, PORT: '4102', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -167,7 +172,7 @@ test('creates a rental through the API', async () => {
 test('updates a customer through the API', async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: '4103', NODE_ENV: 'test' },
+    env: { ...process.env, PORT: '4103', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -214,7 +219,7 @@ test('updates a customer through the API', async () => {
 test('editing a rental to swap equipment keeps equipment status in sync', async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: '4104', NODE_ENV: 'test' },
+    env: { ...process.env, PORT: '4104', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -282,7 +287,7 @@ test('editing a rental to swap equipment keeps equipment status in sync', async 
 test('equipment status cannot be hand-edited away from rented while a rental is open', async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: '4105', NODE_ENV: 'test' },
+    env: { ...process.env, PORT: '4105', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -330,7 +335,7 @@ test('equipment status cannot be hand-edited away from rented while a rental is 
 test('payment status ignores deposits, counts discounts, and is recomputed after a late return', async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: '4106', NODE_ENV: 'test' },
+    env: { ...process.env, PORT: '4106', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -394,7 +399,7 @@ test('payment status ignores deposits, counts discounts, and is recomputed after
 test('one payment settles a multi-item invoice across every item on it', async () => {
   const child = spawn(process.execPath, [serverPath], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: '4107', NODE_ENV: 'test' },
+    env: { ...process.env, PORT: '4107', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 

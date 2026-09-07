@@ -2,7 +2,7 @@
  * Global Error Handler Middleware
  * ================================
  * Catches all errors and returns consistent JSON responses.
- * Handles Joi validation errors, Multer errors, and SQLite constraint errors.
+ * Handles Joi validation errors, Multer errors, and Postgres constraint errors.
  */
 
 function errorHandler(err, req, res, _next) {
@@ -37,14 +37,14 @@ function errorHandler(err, req, res, _next) {
     return res.status(400).json({ success: false, message });
   }
 
-  // ── SQLite Constraint Errors ─────────────────────────────────────────────
-  if (err.code === 'SQLITE_CONSTRAINT' || err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+  // ── Postgres Constraint Errors ────────────────────────────────────────────
+  if (err.code === '23505') {
     return res.status(409).json({
       success: false,
       message: 'A record with the given unique value already exists.'
     });
   }
-  if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+  if (err.code === '23503') {
     return res.status(400).json({
       success: false,
       message: 'Referenced record does not exist.'

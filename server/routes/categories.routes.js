@@ -26,7 +26,7 @@ router.post('/', requireRole('owner'), validate(categorySchema), async (req, res
     return res.status(409).json({ success: false, message: 'A category with this name already exists' });
   }
   const result = await db.execute({
-    sql: 'INSERT INTO categories (name, description, is_active, created_at) VALUES (?, ?, 1, ?)',
+    sql: 'INSERT INTO categories (name, description, is_active, created_at) VALUES (?, ?, 1, ?) RETURNING id',
     args: [name, description || null, new Date().toISOString()],
   });
   res.status(201).json({ success: true, data: { id: Number(result.lastInsertRowid) } });

@@ -67,7 +67,7 @@ const resolveCustomerByPhone = async (name, phone, address, executor = db) => {
 
   const result = await executor.execute({
     sql: `INSERT INTO customers (full_name, phone_number, alternate_phone, address, registration_date, registration_time, status, notes, is_deleted, created_at, updated_at)
-          VALUES (?, ?, '', ?, ?, ?, 'active', '', 0, ?, ?)`,
+          VALUES (?, ?, '', ?, ?, ?, 'active', '', 0, ?, ?) RETURNING id`,
     args: [name, trimmedPhone, address || '', now.toISOString().slice(0, 10), now.toTimeString().slice(0, 5), now.toISOString(), now.toISOString()],
   });
   return Number(result.lastInsertRowid);
@@ -97,7 +97,7 @@ router.use(authenticate);
 const refreshOverdueStatuses = async () => {
   await db.execute(`
     UPDATE rentals SET rental_status = 'overdue'
-    WHERE rental_status = 'active' AND date(expected_return_date) < date('now')
+    WHERE rental_status = 'active' AND expected_return_date::date < CURRENT_DATE
   `);
 };
 
@@ -153,7 +153,7 @@ router.post('/', validate(createRentalSchema), async (req, res) => {
       const totalRent = item.daily_rate * item.rental_days;
       const result = await tx.execute({
         sql: `INSERT INTO rentals (invoice_number, customer_id, equipment_id, rental_date, rental_time, expected_return_date, expected_return_time, rental_days, daily_rate, deposit, total_rent, final_amount, payment_status, rental_status, created_by, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'active', ?, ?, ?)`,
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'active', ?, ?, ?) RETURNING id`,
         args: [invoiceNumber, customerId, item.equipment_id, value.rental_date, registeredTime, value.expected_return_date, expectedReturnTime, item.rental_days, item.daily_rate, item.deposit, totalRent, totalRent, req.user.id, now.toISOString(), now.toISOString()],
       });
       await tx.execute({
@@ -320,8 +320,8 @@ router.get('/:id/invoice', async (req, res) => {
     db.execute('SELECT * FROM shop_settings WHERE id = 1'),
     db.execute({
       sql: `SELECT
-              COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN amount ELSE 0 END), 0) AS paidRent,
-              COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN discount ELSE 0 END), 0) AS discountTotal
+              COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN amount ELSE 0 END), 0) AS paid_rent,
+              COALESCE(SUM(CASE WHEN payment_type = 'rent' THEN discount ELSE 0 END), 0) AS discount_total
             FROM payments WHERE invoice_number = ?`,
       args: [anchor.invoice_number],
     }),
@@ -340,7 +340,7 @@ router.get('/:id/invoice', async (req, res) => {
   }), { total_rent: 0, late_fee: 0, damage_charge: 0, deposit: 0, refund_amount: 0, final_amount: 0 });
 
   const paymentTotals = paymentTotalsResult.rows[0];
-  const amountSettled = paymentTotals.paidRent + paymentTotals.discountTotal;
+  const amountSettled = paymentTotals.paid_rent + paymentTotals.discount_total;
   const balanceDue = Math.max(0, totals.final_amount - amountSettled);
 
   res.setHeader('Content-Type', 'application/pdf');

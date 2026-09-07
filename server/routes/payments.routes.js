@@ -73,7 +73,7 @@ router.post('/', validate(paymentSchema), async (req, res) => {
   try {
     const result = await tx.execute({
       sql: `INSERT INTO payments (rental_id, invoice_number, amount, discount, payment_method, payment_type, payment_date, notes, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       args: [invoiceItems.rows[0].id, value.invoice_number, value.amount, value.discount, value.payment_method, value.payment_type, now.toISOString().slice(0, 10), value.notes || '', req.user.id, now.toISOString()],
     });
     insertedId = Number(result.lastInsertRowid);

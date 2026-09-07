@@ -27,7 +27,7 @@ const resolveCategoryId = async (categoryId, categoryName) => {
   const existing = await db.execute({ sql: 'SELECT id FROM categories WHERE name = ?', args: [name] });
   if (existing.rows[0]) return existing.rows[0].id;
   const result = await db.execute({
-    sql: 'INSERT INTO categories (name, description, is_active, created_at) VALUES (?, ?, 1, ?)',
+    sql: 'INSERT INTO categories (name, description, is_active, created_at) VALUES (?, ?, 1, ?) RETURNING id',
     args: [name, null, new Date().toISOString()],
   });
   return Number(result.lastInsertRowid);
@@ -67,7 +67,7 @@ router.post('/', validate(equipmentSchema), async (req, res) => {
   const now = new Date().toISOString();
   const result = await db.execute({
     sql: `INSERT INTO equipment (name, category_id, daily_rent, security_deposit, current_status, current_location, notes, is_deleted, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?) RETURNING id`,
     args: [value.name, categoryId, value.daily_rent, value.security_deposit, value.status, value.location, value.notes, now, now],
   });
   res.status(201).json({ success: true, data: { id: Number(result.lastInsertRowid) } });

@@ -10,7 +10,7 @@ router.use(authenticate);
 router.get('/stats', async (req, res) => {
   await db.execute(`
     UPDATE rentals SET rental_status = 'overdue'
-    WHERE rental_status = 'active' AND date(expected_return_date) < date('now')
+    WHERE rental_status = 'active' AND expected_return_date::date < CURRENT_DATE
   `);
 
   const [
@@ -45,9 +45,9 @@ router.get('/stats', async (req, res) => {
       ORDER BY p.id DESC LIMIT 5
     `),
     db.execute(`
-      SELECT strftime('%Y-%m', payment_date) AS month, SUM(amount) AS total
+      SELECT to_char(payment_date::date, 'YYYY-MM') AS month, SUM(amount) AS total
       FROM payments
-      WHERE payment_type != 'refund' AND payment_date >= date('now', '-6 months')
+      WHERE payment_type != 'refund' AND payment_date::date >= (CURRENT_DATE - INTERVAL '6 months')
       GROUP BY month ORDER BY month ASC
     `),
   ]);

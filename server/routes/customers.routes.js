@@ -44,7 +44,7 @@ router.post('/', validate(customerSchema), async (req, res) => {
   const now = new Date();
   const result = await db.execute({
     sql: `INSERT INTO customers (full_name, phone_number, alternate_phone, address, registration_date, registration_time, status, notes, is_deleted, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?) RETURNING id`,
     args: [
       value.full_name, value.phone_number, value.alternate_phone, value.address,
       now.toISOString().slice(0, 10), now.toTimeString().slice(0, 5),

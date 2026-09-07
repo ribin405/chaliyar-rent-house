@@ -39,7 +39,7 @@ router.post('/', validate(createUserSchema), async (req, res) => {
   const now = new Date().toISOString();
   const result = await db.execute({
     sql: `INSERT INTO users (username, password_hash, full_name, role, is_active, created_at, updated_at)
-          VALUES (?, ?, ?, ?, 1, ?, ?)`,
+          VALUES (?, ?, ?, ?, 1, ?, ?) RETURNING id`,
     args: [value.username, hash, value.full_name, value.role, now, now],
   });
 
