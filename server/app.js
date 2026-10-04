@@ -6,10 +6,11 @@ const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const path = require('path');
 
+// Load env before requiring modules that read process.env at import time (e.g. the DB pool).
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
 const errorHandler = require('./middleware/errorHandler');
 const { ready } = require('./config/database');
-
-dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
 const DEFAULT_PORT = 5000;
