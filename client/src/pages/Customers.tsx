@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { usePolling } from '../lib/usePolling';
 import { Modal } from '../components/Modal';
+import { ReturnMarker } from '../components/ReturnMarker';
 import type { Customer } from '../types';
 
 const EMPTY_FORM = {
@@ -14,6 +16,8 @@ const EMPTY_FORM = {
 };
 
 export function Customers() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -24,6 +28,22 @@ export function Customers() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Arrived here from the global search, or a dashboard quick action.
+  useEffect(() => {
+    const state = location.state as { search?: string; openCreate?: boolean } | null;
+    if (state?.search) {
+      setSearch(state.search);
+      setStatusFilter('All');
+    }
+    if (state?.openCreate) {
+      openCreate();
+    }
+    if (state?.search || state?.openCreate) {
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const hasLoadedRef = useRef(false);
   const loadCustomers = () => {
@@ -43,7 +63,7 @@ export function Customers() {
   usePolling(loadCustomers);
 
   const filtered = useMemo(() => customers.filter((customer) => {
-    const matchesSearch = `${customer.id} ${customer.full_name} ${customer.phone_number}`.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = `${customer.id} ${customer.full_name} ${customer.phone_number} ${customer.alternate_phone ?? ''}`.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'All' || customer.status === statusFilter;
     return matchesSearch && matchesStatus;
   }), [customers, search, statusFilter]);
@@ -145,7 +165,18 @@ export function Customers() {
               {filtered.map((customer) => (
                 <tr key={customer.id}>
                   <td>{customer.id}</td>
-                  <td>{customer.full_name}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => navigate('/rentals', { state: { search: customer.phone_number } })}
+                      title="View this customer's rentals"
+                    >
+                      {customer.full_name}
+                    </button>
+                    {' '}
+                    <ReturnMarker openCount={customer.open_count ?? 0} overdueCount={customer.overdue_count ?? 0} />
+                  </td>
                   <td>{customer.phone_number}</td>
                   <td><span className={`status-badge ${customer.status === 'active' ? 'available' : 'maintenance'}`}>{customer.status}</span></td>
                   <td>{customer.registration_date}</td>

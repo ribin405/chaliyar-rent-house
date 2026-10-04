@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Wrench, ClipboardList, CalendarDays, Wallet, FileBarChart, Settings as SettingsIcon,
-  Menu, LogOut, Zap,
+  Menu, LogOut, Zap, Plus,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { GlobalSearch } from './GlobalSearch';
 
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -88,6 +89,15 @@ export function Layout() {
               </div>
             </div>
             <div className="topbar-actions">
+              <GlobalSearch />
+              <button
+                type="button"
+                className="primary-button topbar-create"
+                onClick={() => navigate('/rentals', { state: { openCreate: true } })}
+              >
+                <Plus size={16} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
+                Create Rental
+              </button>
               <div className="user-chip">{user?.full_name} &bull; {user?.role === 'owner' ? 'Owner' : 'Staff'}</div>
             </div>
           </header>

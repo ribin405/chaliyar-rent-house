@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { Pool, neonConfig } = require('@neondatabase/serverless');
 const ws = require('ws');
+const { formatInvoiceNumber } = require('../utils/invoiceNumber');
 
 // @neondatabase/serverless needs a WebSocket implementation on Node (only modern
 // Node has a native global WebSocket) to support real multi-statement sessions —
@@ -227,6 +228,9 @@ async function ensureSchema() {
   await ensureColumn('rentals', 'return_notes', "TEXT DEFAULT ''");
   await ensureColumn('payments', 'discount', 'REAL NOT NULL DEFAULT 0');
   await ensureColumn('payments', 'invoice_number', 'TEXT');
+  // Identical units held of one equipment, and how many of them a rental line takes.
+  await ensureColumn('equipment', 'stock_quantity', 'INTEGER NOT NULL DEFAULT 1');
+  await ensureColumn('rentals', 'quantity', 'INTEGER NOT NULL DEFAULT 1');
 
   // One invoice can cover several equipment items (rentals rows). Payments settle
   // the whole invoice at once, so backfill invoice_number for any pre-existing
@@ -240,6 +244,68 @@ async function ensureSchema() {
   await db.execute('CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone_number)');
   await db.execute('CREATE INDEX IF NOT EXISTS idx_rentals_invoice ON rentals(invoice_number)');
   await db.execute('CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_number)');
+
+  await ensureInvoiceNumbering();
+}
+
+// Highest running number already issued in the PREFIX-00001 format. Legacy
+// timestamp invoices (13 digits) are excluded.
+async function maxIssuedInvoiceNumber(executor) {
+  const result = await executor.execute(`
+    SELECT COALESCE(MAX(CAST(substring(invoice_number from '([0-9]+)$') AS integer)), 0) AS value
+    FROM rentals WHERE invoice_number ~ '-[0-9]{5,12}$'
+  `);
+  return Number(result.rows[0].value);
+}
+
+// Sets up the invoice_number_seq sequence, and — once — renumbers invoices from
+// the old timestamp scheme (INV-1788831903554) into PREFIX-00001, PREFIX-00002, …
+// in the order they were created, carrying their payments along. Runs under an
+// advisory lock in one transaction so concurrent cold starts can't both do it.
+async function ensureInvoiceNumbering() {
+  const tx = await db.transaction('write');
+  try {
+    await tx.execute('SELECT pg_advisory_xact_lock(724001)');
+    const sequenceExists = (await tx.execute("SELECT to_regclass('invoice_number_seq') AS name")).rows[0].name;
+    if (!sequenceExists) {
+      await tx.execute('CREATE SEQUENCE invoice_number_seq');
+    }
+
+    const legacy = await tx.execute(`
+      SELECT invoice_number FROM rentals
+      WHERE invoice_number ~ '-[0-9]{13}$'
+      GROUP BY invoice_number ORDER BY MIN(id)
+    `);
+
+    if (legacy.rows.length) {
+      const settings = await tx.execute('SELECT invoice_prefix FROM shop_settings ORDER BY id LIMIT 1');
+      const prefix = settings.rows[0]?.invoice_prefix;
+      let next = await maxIssuedInvoiceNumber(tx);
+      for (const { invoice_number: oldNumber } of legacy.rows) {
+        next += 1;
+        const newNumber = formatInvoiceNumber(prefix, next);
+        await tx.execute({ sql: 'UPDATE rentals SET invoice_number = ? WHERE invoice_number = ?', args: [newNumber, oldNumber] });
+        await tx.execute({ sql: 'UPDATE payments SET invoice_number = ? WHERE invoice_number = ?', args: [newNumber, oldNumber] });
+      }
+      console.log(`[DB] Renumbered ${legacy.rows.length} invoice(s) to the ${formatInvoiceNumber(prefix, 1)} format`);
+    }
+
+    // Only realign the sequence when it's new or numbers were just assigned —
+    // moving it under a live server could hand out a number twice.
+    if (!sequenceExists || legacy.rows.length) {
+      const highest = await maxIssuedInvoiceNumber(tx);
+      await tx.execute({
+        sql: 'SELECT setval(\'invoice_number_seq\', ?, ?)',
+        args: [Math.max(highest, 1), highest > 0],
+      });
+    }
+    await tx.commit();
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  } finally {
+    tx.close();
+  }
 }
 
 async function initialize() {

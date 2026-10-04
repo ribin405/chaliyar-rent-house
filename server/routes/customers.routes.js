@@ -19,9 +19,19 @@ const customerSchema = Joi.object({
 router.use(authenticate);
 
 router.get('/', async (req, res) => {
+  // open_count / overdue_count: equipment this customer still has to bring back.
   const result = await db.execute(`
-    SELECT id, full_name, phone_number, alternate_phone, address, registration_date, status, notes
-    FROM customers WHERE is_deleted = 0 ORDER BY id DESC
+    SELECT c.id, c.full_name, c.phone_number, c.alternate_phone, c.address, c.registration_date, c.status, c.notes,
+           COALESCE(o.open_count, 0) AS open_count, COALESCE(o.overdue_count, 0) AS overdue_count
+    FROM customers c
+    LEFT JOIN (
+      SELECT customer_id,
+             COUNT(*)::int AS open_count,
+             COUNT(*) FILTER (WHERE rental_status = 'overdue')::int AS overdue_count
+      FROM rentals WHERE rental_status IN ('active', 'overdue')
+      GROUP BY customer_id
+    ) o ON o.customer_id = c.id
+    WHERE c.is_deleted = 0 ORDER BY c.id DESC
   `);
   res.json({ success: true, data: result.rows });
 });

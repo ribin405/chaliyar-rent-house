@@ -41,7 +41,7 @@ router.get('/revenue', async (req, res) => {
 
 router.get('/rentals/export', async (req, res) => {
   const result = await db.execute(`
-    SELECT r.invoice_number, c.full_name AS customer_name, e.name AS equipment_name,
+    SELECT r.invoice_number, c.full_name AS customer_name, e.name AS equipment_name, r.quantity,
            r.rental_date, r.rental_time, r.expected_return_date, r.expected_return_time,
            r.actual_return_date, r.actual_return_time, r.rental_days, r.daily_rate, r.deposit, r.total_rent, r.late_fee, r.damage_charge,
            r.final_amount, r.payment_status, r.rental_status
@@ -58,6 +58,7 @@ router.get('/rentals/export', async (req, res) => {
     { header: 'Invoice #', key: 'invoice_number', width: 18 },
     { header: 'Customer', key: 'customer_name', width: 22 },
     { header: 'Equipment', key: 'equipment_name', width: 22 },
+    { header: 'Qty', key: 'quantity', width: 6 },
     { header: 'Rental Date', key: 'rental_date', width: 18 },
     { header: 'Expected Return', key: 'expected_return_date', width: 18 },
     { header: 'Actual Return', key: 'actual_return_date', width: 18 },

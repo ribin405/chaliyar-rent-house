@@ -5,9 +5,11 @@ interface ModalProps {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  // Roomier card for content-heavy forms, e.g. building an order.
+  wide?: boolean;
 }
 
-export function Modal({ open, title, onClose, children }: ModalProps) {
+export function Modal({ open, title, onClose, children, wide = false }: ModalProps) {
   return (
     <div
       className={`modal-backdrop ${open ? 'open' : ''}`}
@@ -17,7 +19,7 @@ export function Modal({ open, title, onClose, children }: ModalProps) {
         }
       }}
     >
-      <div className="modal-card">
+      <div className={`modal-card ${wide ? 'wide' : ''}`}>
         <div className="panel-title-row">
           <h3>{title}</h3>
           <button type="button" className="text-button" onClick={onClose}>Close</button>

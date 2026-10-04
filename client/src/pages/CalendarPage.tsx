@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiRequest } from '../lib/api';
 import { usePolling } from '../lib/usePolling';
+import { itemLabel } from '../lib/format';
 import type { Payment, Rental } from '../types';
 
 type EventType = 'start' | 'due' | 'returned' | 'payment';
@@ -232,7 +233,7 @@ export function CalendarPage() {
                 {event.rental && (
                   <>
                     <strong>{event.rental.invoice_number}</strong>
-                    <span>{event.rental.customer_name} &middot; {event.rental.equipment_name}</span>
+                    <span>{event.rental.customer_name} &middot; {itemLabel(event.rental.equipment_name, event.rental.quantity)}</span>
                     <span>₹ {event.rental.final_amount.toLocaleString()}</span>
                   </>
                 )}

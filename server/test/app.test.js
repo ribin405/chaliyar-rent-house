@@ -424,7 +424,7 @@ test('one payment settles a multi-item invoice across every item on it', async (
   const rental = (await (await fetch(`${base}/api/rentals`, {
     method: 'POST', headers, body: JSON.stringify({
       customer_name: 'Multi Item Tester', customer_phone: `5${Date.now()}`.slice(0, 10),
-      rental_date: '2026-07-18', expected_return_date: '2026-07-19',
+      rental_date: '2026-07-18', expected_return_date: '2026-07-18',
       items: [
         { equipment_id: equipA.id, daily_rate: 500, deposit: 1000, rental_days: 1 },
         { equipment_id: equipB.id, daily_rate: 300, deposit: 500, rental_days: 1 },
@@ -450,6 +450,299 @@ test('one payment settles a multi-item invoice across every item on it', async (
   const itemsAfterPayment = await getInvoiceItems();
   assert.equal(itemsAfterPayment.length, 2);
   assert.deepEqual(itemsAfterPayment.map((r) => r.payment_status), ['paid', 'paid']);
+
+  child.kill('SIGTERM');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+});
+
+test('batch return closes only the chosen items of an invoice, charging each its own damage', async () => {
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PORT: '4108', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const base = 'http://127.0.0.1:4108';
+
+  const loginPayload = await (await fetch(`${base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'admin123' })
+  })).json();
+  const token = loginPayload.token;
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+
+  const createEquipment = async (name, dailyRent) => (await (await fetch(`${base}/api/equipment`, {
+    method: 'POST', headers, body: JSON.stringify({ name, daily_rent: dailyRent, security_deposit: 1000, status: 'available' })
+  })).json()).data;
+  const [equipA, equipB, equipC] = [await createEquipment('Batch A', 500), await createEquipment('Batch B', 300), await createEquipment('Batch C', 200)];
+
+  const rental = (await (await fetch(`${base}/api/rentals`, {
+    method: 'POST', headers, body: JSON.stringify({
+      customer_name: 'Batch Tester', customer_phone: `6${Date.now()}`.slice(0, 10),
+      rental_date: '2026-07-18', expected_return_date: '2026-07-19',
+      items: [equipA, equipB, equipC].map((equip) => ({ equipment_id: equip.id, daily_rate: equip.daily_rent, deposit: 1000, rental_days: 1 }))
+    })
+  })).json()).data;
+  const [idA, idB, idC] = rental.ids;
+
+  // Out 07-18, back 07-20 = 3 calendar days at each item's rate; the day past
+  // the 07-19 due date shows as the late fee but is part of those 3 days.
+  const batchResponse = await fetch(`${base}/api/rentals/return-batch`, {
+    method: 'POST', headers, body: JSON.stringify({
+      actual_return_date: '2026-07-20', return_notes: 'batch',
+      items: [{ id: idA, damage_charge: 100 }, { id: idB }]
+    })
+  });
+  assert.equal(batchResponse.status, 200);
+
+  const all = (await (await fetch(`${base}/api/rentals`, { headers })).json()).data;
+  const byId = new Map(all.map((r) => [r.id, r]));
+  assert.equal(byId.get(idA).status, 'completed');
+  assert.equal(byId.get(idA).late_fee, 500);
+  assert.equal(byId.get(idA).final_amount, 3 * 500 + 100);
+  assert.equal(byId.get(idA).refund_amount, 900);
+  assert.equal(byId.get(idB).status, 'completed');
+  assert.equal(byId.get(idB).final_amount, 3 * 300);
+  assert.notEqual(byId.get(idC).status, 'completed');
+
+  // Returning an already-closed item again is rejected without touching the open one.
+  const repeatResponse = await fetch(`${base}/api/rentals/return-batch`, {
+    method: 'POST', headers, body: JSON.stringify({ actual_return_date: '2026-07-20', items: [{ id: idA }, { id: idC }] })
+  });
+  assert.equal(repeatResponse.status, 409);
+  const stillOpen = (await (await fetch(`${base}/api/rentals`, { headers })).json()).data.find((r) => r.id === idC);
+  assert.notEqual(stillOpen.status, 'completed');
+
+  child.kill('SIGTERM');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+});
+
+test('editing a returned item re-derives its late fee, refund and final amount', async () => {
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PORT: '4109', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const base = 'http://127.0.0.1:4109';
+
+  const loginPayload = await (await fetch(`${base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'admin123' })
+  })).json();
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${loginPayload.token}` };
+
+  const equip = (await (await fetch(`${base}/api/equipment`, {
+    method: 'POST', headers, body: JSON.stringify({ name: 'Edit Returned', daily_rent: 400, security_deposit: 1000, status: 'available' })
+  })).json()).data;
+  const phone = `5${Date.now()}`.slice(0, 10);
+  const rental = (await (await fetch(`${base}/api/rentals`, {
+    method: 'POST', headers, body: JSON.stringify({
+      customer_name: 'Edit Tester', customer_phone: phone,
+      rental_date: '2026-07-18', expected_return_date: '2026-07-19',
+      items: [{ equipment_id: equip.id, daily_rate: 400, deposit: 1000, rental_days: 1 }]
+    })
+  })).json()).data;
+  const id = rental.ids[0];
+
+  // Returned 07-21 with no damage: 4 calendar days at 400.
+  await fetch(`${base}/api/rentals/${id}/return`, {
+    method: 'POST', headers, body: JSON.stringify({ actual_return_date: '2026-07-21', damage_charge: 0 })
+  });
+
+  // Correct it: actually back 07-20 (3 days, 1 past due), 150 damage, at a 500 rate.
+  const editResponse = await fetch(`${base}/api/rentals/${id}`, {
+    method: 'PUT', headers, body: JSON.stringify({
+      customer_name: 'Edit Tester', customer_phone: phone, equipment_id: equip.id,
+      rental_date: '2026-07-18', expected_return_date: '2026-07-19', rental_days: 1,
+      daily_rate: 500, deposit: 1000,
+      actual_return_date: '2026-07-20', damage_charge: 150, return_notes: 'scratched'
+    })
+  });
+  assert.equal(editResponse.status, 200);
+
+  const edited = (await (await fetch(`${base}/api/rentals/${id}`, { headers })).json()).data;
+  assert.equal(edited.status, 'completed');
+  assert.equal(edited.actual_return_date, '2026-07-20');
+  assert.equal(edited.late_fee, 500);
+  assert.equal(edited.damage_charge, 150);
+  assert.equal(edited.refund_amount, 850);
+  assert.equal(edited.rental_days, 2);
+  assert.equal(edited.final_amount, 3 * 500 + 150);
+  assert.equal(edited.return_notes, 'scratched');
+
+  child.kill('SIGTERM');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+});
+
+test('every calendar day counts: same-day return is 1 day, next-day return is 2', async () => {
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PORT: '4110', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const base = 'http://127.0.0.1:4110';
+
+  const loginPayload = await (await fetch(`${base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'admin123' })
+  })).json();
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${loginPayload.token}` };
+
+  const rentOne = async (name, rentalDate, expectedDate) => {
+    const equip = (await (await fetch(`${base}/api/equipment`, {
+      method: 'POST', headers, body: JSON.stringify({ name, daily_rent: 200, security_deposit: 0, status: 'available' })
+    })).json()).data;
+    const created = await (await fetch(`${base}/api/rentals`, {
+      method: 'POST', headers, body: JSON.stringify({
+        customer_name: 'Day Counter', customer_phone: `4${Date.now()}`.slice(0, 10),
+        rental_date: rentalDate, expected_return_date: expectedDate,
+        // A stale day count from the client is ignored: days follow the dates.
+        items: [{ equipment_id: equip.id, daily_rate: 200, deposit: 0, rental_days: 9 }]
+      })
+    })).json();
+    return created.data.ids[0];
+  };
+  const returnOn = (id, date) => fetch(`${base}/api/rentals/${id}/return`, {
+    method: 'POST', headers, body: JSON.stringify({ actual_return_date: date })
+  });
+  const get = async (id) => (await (await fetch(`${base}/api/rentals/${id}`, { headers })).json()).data;
+
+  // Booked same day: 1 day.
+  const sameDay = await rentOne('Day A', '2026-07-18', '2026-07-18');
+  assert.equal((await get(sameDay)).rental_days, 1);
+  assert.equal((await get(sameDay)).total_rent, 200);
+  await returnOn(sameDay, '2026-07-18');
+  assert.equal((await get(sameDay)).final_amount, 200);
+
+  // Out today, back tomorrow: 2 days.
+  const nextDay = await rentOne('Day B', '2026-07-18', '2026-07-18');
+  await returnOn(nextDay, '2026-07-19');
+  assert.equal((await get(nextDay)).final_amount, 400);
+
+  // Booked 3 days, back on day 2: pays the 2 days used.
+  const early = await rentOne('Day C', '2026-07-18', '2026-07-20');
+  assert.equal((await get(early)).rental_days, 3);
+  await returnOn(early, '2026-07-19');
+  assert.equal((await get(early)).final_amount, 400);
+  assert.equal((await get(early)).late_fee, 0);
+
+  // Returning before the rental date is refused.
+  const backwards = await rentOne('Day D', '2026-07-18', '2026-07-18');
+  assert.equal((await returnOn(backwards, '2026-07-17')).status, 400);
+
+  child.kill('SIGTERM');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+});
+
+test('invoice numbers are 5-digit and issued in order', async () => {
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PORT: '4111', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const base = 'http://127.0.0.1:4111';
+
+  const loginPayload = await (await fetch(`${base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'admin123' })
+  })).json();
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${loginPayload.token}` };
+
+  const createInvoice = async (name) => {
+    const equip = (await (await fetch(`${base}/api/equipment`, {
+      method: 'POST', headers, body: JSON.stringify({ name, daily_rent: 100, security_deposit: 0, status: 'available' })
+    })).json()).data;
+    return (await (await fetch(`${base}/api/rentals`, {
+      method: 'POST', headers, body: JSON.stringify({
+        customer_name: 'Invoice Order', customer_phone: `3${Date.now()}`.slice(0, 10),
+        rental_date: '2026-07-18', expected_return_date: '2026-07-18',
+        items: [{ equipment_id: equip.id, daily_rate: 100, deposit: 0 }]
+      })
+    })).json()).data.invoice_number;
+  };
+
+  const first = await createInvoice('Order A');
+  const second = await createInvoice('Order B');
+  assert.match(first, /^.+-\d{5,}$/);
+  assert.match(second, /^.+-\d{5,}$/);
+  const number = (invoice) => Number(invoice.split('-').pop());
+  assert.equal(number(second), number(first) + 1);
+
+  child.kill('SIGTERM');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+});
+
+test('an order can take several units of one item, limited by stock', async () => {
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PORT: '4112', NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const base = 'http://127.0.0.1:4112';
+
+  const loginPayload = await (await fetch(`${base}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'admin123' })
+  })).json();
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${loginPayload.token}` };
+
+  const sheet = (await (await fetch(`${base}/api/equipment`, {
+    method: 'POST', headers, body: JSON.stringify({ name: 'Stock Sheet', daily_rent: 10, security_deposit: 50, stock_quantity: 5, status: 'available' })
+  })).json()).data;
+  const getSheet = async () => (await (await fetch(`${base}/api/equipment/${sheet.id}`, { headers })).json()).data;
+  const order = (quantity) => fetch(`${base}/api/rentals`, {
+    method: 'POST', headers, body: JSON.stringify({
+      customer_name: 'Bulk Renter', customer_phone: `2${Date.now()}`.slice(0, 10),
+      rental_date: '2026-07-18', expected_return_date: '2026-07-19',
+      items: [{ equipment_id: sheet.id, quantity, daily_rate: 10, deposit: 50 * quantity }]
+    })
+  });
+
+  // 3 of 5 out: still rentable, 2 free. 3 more don't fit; 2 more do and use it up.
+  const first = await order(3);
+  assert.equal(first.status, 201);
+  const firstId = (await first.json()).data.ids[0];
+  let state = await getSheet();
+  assert.equal(state.available_quantity, 2);
+  assert.equal(state.status, 'available');
+  assert.equal((await order(3)).status, 409);
+  assert.equal((await order(2)).status, 201);
+  state = await getSheet();
+  assert.equal(state.available_quantity, 0);
+  assert.equal(state.status, 'rented');
+
+  // Rent scales with quantity: 3 units × 10 × 2 days.
+  const line = (await (await fetch(`${base}/api/rentals/${firstId}`, { headers })).json()).data;
+  assert.equal(line.quantity, 3);
+  assert.equal(line.total_rent, 60);
+
+  // Returning the 3 frees them; one day late = 3 days × 3 units × 10.
+  await fetch(`${base}/api/rentals/${firstId}/return`, { method: 'POST', headers, body: JSON.stringify({ actual_return_date: '2026-07-20' }) });
+  const returned = (await (await fetch(`${base}/api/rentals/${firstId}`, { headers })).json()).data;
+  assert.equal(returned.final_amount, 90);
+  state = await getSheet();
+  assert.equal(state.available_quantity, 3);
+  assert.equal(state.status, 'available');
+
+  // Stock can't be cut below the 2 units still out.
+  const cut = await fetch(`${base}/api/equipment/${sheet.id}`, {
+    method: 'PUT', headers, body: JSON.stringify({ name: 'Stock Sheet', daily_rent: 10, security_deposit: 50, stock_quantity: 1, status: 'available' })
+  });
+  assert.equal(cut.status, 409);
 
   child.kill('SIGTERM');
   await new Promise((resolve) => setTimeout(resolve, 500));

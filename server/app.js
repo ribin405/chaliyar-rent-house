@@ -12,6 +12,21 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const errorHandler = require('./middleware/errorHandler');
 const { ready } = require('./config/database');
 
+// Express 4 doesn't forward a rejected promise from an async route to the
+// error middleware — the rejection goes unhandled and takes the process down.
+// Route every handler's rejection to next() so errorHandler answers instead.
+const Layer = require('express/lib/router/layer');
+Layer.prototype.handle_request = function handleRequest(req, res, next) {
+  const fn = this.handle;
+  if (fn.length > 3) return next(); // error-handling middleware, not a route
+  try {
+    const result = fn(req, res, next);
+    if (result && typeof result.catch === 'function') result.catch(next);
+  } catch (err) {
+    next(err);
+  }
+};
+
 const app = express();
 const DEFAULT_PORT = 5000;
 const requestedPort = Number(process.env.PORT);
@@ -60,6 +75,7 @@ app.use('/api/payments', require('./routes/payments.routes'));
 app.use('/api/dashboard', require('./routes/dashboard.routes'));
 app.use('/api/reports', require('./routes/reports.routes'));
 app.use('/api/settings', require('./routes/settings.routes'));
+app.use('/api/search', require('./routes/search.routes'));
 app.use('/api/users', require('./routes/users.routes'));
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

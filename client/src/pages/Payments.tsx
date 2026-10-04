@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { usePolling } from '../lib/usePolling';
 import { Modal } from '../components/Modal';
+import { itemLabel } from '../lib/format';
 import type { Payment, Rental } from '../types';
 
 const EMPTY_FORM = {
@@ -22,6 +24,8 @@ interface InvoiceGroup {
 }
 
 export function Payments() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [rentals, setRentals] = useState<Rental[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,11 +79,25 @@ export function Payments() {
 
   const itemsByInvoice = (invoiceNumber: string) => rentals.filter((rental) => rental.invoice_number === invoiceNumber);
 
-  const openCreate = () => {
-    setForm(EMPTY_FORM);
+  const openCreate = (preset?: { invoice?: string; amount?: number }) => {
+    setForm({
+      ...EMPTY_FORM,
+      invoice_number: preset?.invoice ?? '',
+      amount: preset?.amount ? String(preset.amount) : '',
+    });
     setFormError('');
     setModalOpen(true);
   };
+
+  // Arrived here from a dashboard "Record Payment" / "Collect" button.
+  useEffect(() => {
+    const state = location.state as { openCreate?: boolean; invoice?: string; amount?: number } | null;
+    if (state?.openCreate) {
+      openCreate({ invoice: state.invoice, amount: state.amount });
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const selectedInvoiceItems = form.invoice_number ? itemsByInvoice(form.invoice_number) : [];
 
@@ -125,7 +143,7 @@ export function Payments() {
           <p className="eyebrow">Payments</p>
           <h2>Collect rent, deposits, and refunds</h2>
         </div>
-        <button type="button" className="primary-button" onClick={openCreate}>Record Payment</button>
+        <button type="button" className="primary-button" onClick={() => openCreate()}>Record Payment</button>
       </div>
 
       {error && <p className="form-error">{error}</p>}
@@ -142,7 +160,7 @@ export function Payments() {
                   <td>{payment.payment_date}</td>
                   <td>{payment.invoice_number}</td>
                   <td>{payment.customer_name}</td>
-                  <td>{itemsByInvoice(payment.invoice_number).map((item) => item.equipment_name).join(', ') || '—'}</td>
+                  <td>{itemsByInvoice(payment.invoice_number).map((item) => itemLabel(item.equipment_name, item.quantity)).join(', ') || '—'}</td>
                   <td style={{ textTransform: 'capitalize' }}>{payment.payment_type}</td>
                   <td style={{ textTransform: 'capitalize' }}>{payment.payment_method.replace('_', ' ')}</td>
                   <td>₹ {payment.amount.toLocaleString()}</td>
@@ -172,7 +190,7 @@ export function Payments() {
           </label>
           {selectedInvoiceItems.length > 0 && (
             <p className="login-message" style={{ gridColumn: '1 / -1', marginTop: -6 }}>
-              Covers: {selectedInvoiceItems.map((item) => item.equipment_name).join(', ')}. This payment settles the whole invoice at once.
+              Covers: {selectedInvoiceItems.map((item) => itemLabel(item.equipment_name, item.quantity)).join(', ')}. This payment settles the whole invoice at once.
             </p>
           )}
           <label className="half">
