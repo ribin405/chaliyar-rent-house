@@ -5,8 +5,9 @@ import { usePolling } from '../lib/usePolling';
 import { Modal } from '../components/Modal';
 import { EquipmentPicker } from '../components/EquipmentPicker';
 import { EquipmentButtons } from '../components/EquipmentButtons';
+import { RecordPaymentModal, type PaymentPreset } from '../components/RecordPaymentModal';
 import { itemLabel } from '../lib/format';
-import type { Customer, Equipment as EquipmentItem, Rental, RentalStatus } from '../types';
+import type { Customer, Equipment as EquipmentItem, Payment, Rental, RentalStatus } from '../types';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -546,6 +547,23 @@ export function Rentals() {
     setReturnError('');
   };
 
+  // What has already been paid on the invoice being returned, so the return form
+  // can say "Paid" or "Not paid" and offer to record the payment right there.
+  const returnInvoice = returningItems[0]?.invoice_number ?? null;
+  const [invoicePayments, setInvoicePayments] = useState<Payment[] | null>(null);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [paymentPreset, setPaymentPreset] = useState<PaymentPreset | null>(null);
+
+  const loadInvoicePayments = (invoice: string) => apiRequest<Payment[]>(`/payments?invoice_number=${encodeURIComponent(invoice)}`)
+    .then(setInvoicePayments)
+    .catch(() => setInvoicePayments(null));
+
+  useEffect(() => {
+    setInvoicePayments(null);
+    if (returnInvoice) loadInvoicePayments(returnInvoice);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returnInvoice]);
+
   const returnPreview = returningItems.map((rental) => {
     const damage = Number(returnForm.damage[rental.id]) || 0;
     return { rental, damage, ...previewReturn(rental, returnForm.actual_return_date, damage) };
@@ -556,6 +574,27 @@ export function Rentals() {
     refund: acc.refund + row.refund,
     finalAmount: acc.finalAmount + row.finalAmount,
   }), { lateFee: 0, damage: 0, refund: 0, finalAmount: 0 });
+
+  // Invoice-level money, using the same rule as the server's payment status:
+  // rent payments plus discounts count; deposits and refunds are separate.
+  // Items being returned are billed at their previewed final amount.
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  const previewFinalById = new Map(returnPreview.map((row) => [row.rental.id, row.finalAmount]));
+  const invoiceBilled = round2(
+    rentals
+      .filter((rental) => rental.invoice_number === returnInvoice)
+      .reduce((sum, rental) => sum + (previewFinalById.get(rental.id) ?? rental.final_amount), 0),
+  );
+  const invoiceSettled = invoicePayments
+    ? round2(invoicePayments.filter((p) => p.payment_type === 'rent').reduce((sum, p) => sum + p.amount + p.discount, 0))
+    : null;
+  const invoiceBalance = invoiceSettled === null ? null : round2(invoiceBilled - invoiceSettled);
+
+  const recordReturnPayment = () => {
+    if (!returnInvoice) return;
+    setPaymentPreset({ invoice: returnInvoice, amount: invoiceBalance && invoiceBalance > 0 ? invoiceBalance : undefined });
+    setPaymentOpen(true);
+  };
 
   const handleReturnSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -1089,6 +1128,25 @@ export function Rentals() {
                 )}
               </table>
             </div>
+            <div className={`return-payment ${invoiceBalance === null ? '' : invoiceBalance <= 0 ? 'is-paid' : 'is-due'}`}>
+              <div className="return-payment-info">
+                <span className="return-payment-title">Payment</span>
+                <small>
+                  {invoiceSettled === null
+                    ? 'Checking payments…'
+                    : `Billed ₹ ${invoiceBilled.toLocaleString()} · Paid ₹ ${invoiceSettled.toLocaleString()}`}
+                </small>
+              </div>
+              {invoiceBalance !== null && invoiceBalance <= 0 && (
+                <span className="status-badge paid">Paid</span>
+              )}
+              {invoiceBalance !== null && invoiceBalance > 0 && (
+                <button type="button" className="payment-due-button" onClick={recordReturnPayment}>
+                  <span className={`status-badge ${invoiceSettled ? 'partial' : 'pending'}`}>{invoiceSettled ? 'Part paid' : 'Not paid'}</span>
+                  <span className="payment-due-text">₹ {invoiceBalance.toLocaleString()} due &middot; Record payment</span>
+                </button>
+              )}
+            </div>
             <label>
               <span>Return Notes</span>
               <textarea value={returnForm.return_notes} onChange={(event) => setReturnForm({ ...returnForm, return_notes: event.target.value })} />
@@ -1105,6 +1163,18 @@ export function Rentals() {
           </form>
         )}
       </Modal>
+
+      {/* Opens on top of the return form, so recording a payment doesn't lose the return in progress. */}
+      <RecordPaymentModal
+        open={paymentOpen}
+        onClose={() => setPaymentOpen(false)}
+        rentals={rentals}
+        preset={paymentPreset}
+        onSaved={() => {
+          loadAll();
+          if (returnInvoice) loadInvoicePayments(returnInvoice);
+        }}
+      />
     </div>
   );
 }

@@ -1,27 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../lib/api';
 import { usePolling } from '../lib/usePolling';
-import { Modal } from '../components/Modal';
+import { RecordPaymentModal, type PaymentPreset } from '../components/RecordPaymentModal';
 import { itemLabel } from '../lib/format';
 import type { Payment, Rental } from '../types';
-
-const EMPTY_FORM = {
-  invoice_number: '',
-  actual_amount: '',
-  discount: '',
-  payment_method: 'cash' as 'cash' | 'upi',
-  payment_type: 'rent' as const,
-  notes: '',
-};
-
-interface InvoiceGroup {
-  invoice_number: string;
-  customer_name: string;
-  items: Rental[];
-  total: number;
-  payment_status: Rental['payment_status'];
-}
 
 export function Payments() {
   const location = useLocation();
@@ -32,9 +15,7 @@ export function Payments() {
   const [error, setError] = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [formError, setFormError] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [preset, setPreset] = useState<PaymentPreset | null>(null);
 
   const hasLoadedRef = useRef(false);
   const loadAll = () => {
@@ -57,39 +38,14 @@ export function Payments() {
 
   usePolling(loadAll);
 
-  // A rental can cover several equipment items sharing one invoice number, and
-  // a customer typically pays for the whole invoice at once — so payments are
-  // recorded against the invoice, not against a single equipment line.
-  const invoiceGroups = useMemo(() => {
-    const map = new Map<string, InvoiceGroup>();
-    rentals.forEach((rental) => {
-      const group = map.get(rental.invoice_number) ?? {
-        invoice_number: rental.invoice_number,
-        customer_name: rental.customer_name,
-        items: [],
-        total: 0,
-        payment_status: rental.payment_status,
-      };
-      group.items.push(rental);
-      group.total += rental.final_amount;
-      map.set(rental.invoice_number, group);
-    });
-    return Array.from(map.values()).sort((a, b) => b.invoice_number.localeCompare(a.invoice_number));
-  }, [rentals]);
-
   const itemsByInvoice = (invoiceNumber: string) => rentals.filter((rental) => rental.invoice_number === invoiceNumber);
 
-  const openCreate = (preset?: { invoice?: string; amount?: number }) => {
-    setForm({
-      ...EMPTY_FORM,
-      invoice_number: preset?.invoice ?? '',
-      actual_amount: preset?.amount ? String(preset.amount) : '',
-    });
-    setFormError('');
+  const openCreate = (nextPreset?: PaymentPreset) => {
+    setPreset(nextPreset ?? null);
     setModalOpen(true);
   };
 
-  // Arrived here from a dashboard "Record Payment" / "Collect" button.
+  // Arrived here from a "Record Payment" / "Collect" button elsewhere.
   useEffect(() => {
     const state = location.state as { openCreate?: boolean; invoice?: string; amount?: number } | null;
     if (state?.openCreate) {
@@ -98,51 +54,6 @@ export function Payments() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
-
-  const selectedInvoiceItems = form.invoice_number ? itemsByInvoice(form.invoice_number) : [];
-
-  // The cashier types the actual amount and any discount; what actually changes
-  // hands (the amount) is the difference, which is what gets recorded.
-  const actualAmount = Number(form.actual_amount) || 0;
-  const discount = Number(form.discount) || 0;
-  const amount = Math.round((actualAmount - discount) * 100) / 100;
-
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!form.invoice_number) {
-      setFormError('Select an invoice.');
-      return;
-    }
-    if (actualAmount <= 0) {
-      setFormError('Enter the actual amount.');
-      return;
-    }
-    if (discount > actualAmount) {
-      setFormError('The discount cannot be more than the actual amount.');
-      return;
-    }
-    setSaving(true);
-    setFormError('');
-    try {
-      await apiRequest('/payments', {
-        method: 'POST',
-        body: JSON.stringify({
-          invoice_number: form.invoice_number,
-          amount,
-          discount,
-          payment_method: form.payment_method,
-          payment_type: form.payment_type,
-          notes: form.notes,
-        }),
-      });
-      setModalOpen(false);
-      loadAll();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to record payment.');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div className="module-shell">
@@ -185,70 +96,13 @@ export function Payments() {
         </div>
       </div>
 
-      <Modal open={modalOpen} title="Record Payment" onClose={() => setModalOpen(false)}>
-        <form className="form-grid" onSubmit={handleSubmit}>
-          <label>
-            <span>Invoice</span>
-            <select value={form.invoice_number} onChange={(event) => setForm({ ...form, invoice_number: event.target.value })} required>
-              <option value="">Select invoice</option>
-              {invoiceGroups.map((group) => (
-                <option key={group.invoice_number} value={group.invoice_number}>
-                  {group.invoice_number} &middot; {group.customer_name} &middot; {group.items.length} item{group.items.length > 1 ? 's' : ''} &middot; ₹{group.total} ({group.payment_status})
-                </option>
-              ))}
-            </select>
-          </label>
-          {selectedInvoiceItems.length > 0 && (
-            <p className="login-message" style={{ gridColumn: '1 / -1', marginTop: -6 }}>
-              Covers: {selectedInvoiceItems.map((item) => itemLabel(item.equipment_name, item.quantity)).join(', ')}. This payment settles the whole invoice at once.
-            </p>
-          )}
-          <label className="half">
-            <span>Actual Amount</span>
-            <input type="number" min="0" step="0.01" value={form.actual_amount} onChange={(event) => setForm({ ...form, actual_amount: event.target.value })} />
-          </label>
-          <label className="half">
-            <span>Discount</span>
-            <input type="number" min="0" step="0.01" value={form.discount} onChange={(event) => setForm({ ...form, discount: event.target.value })} />
-          </label>
-          <label>
-            <span>Amount (Actual Amount − Discount)</span>
-            <input type="text" value={form.actual_amount || form.discount ? `₹ ${Math.max(0, amount).toLocaleString()}` : ''} readOnly tabIndex={-1} className="computed-field" placeholder="Calculated automatically" />
-          </label>
-          <label className="half">
-            <span>Payment Type</span>
-            <select value={form.payment_type} onChange={(event) => setForm({ ...form, payment_type: event.target.value as typeof form.payment_type })}>
-              <option value="rent">Rent</option>
-              <option value="deposit">Deposit</option>
-              <option value="refund">Refund</option>
-            </select>
-          </label>
-          <div className="field-block half">
-            <span>Paid by</span>
-            <div className="segmented large" role="group" aria-label="Paid by">
-              {([['cash', 'Cash'], ['upi', 'UPI']] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={form.payment_method === value ? 'active' : ''}
-                  aria-pressed={form.payment_method === value}
-                  onClick={() => setForm({ ...form, payment_method: value })}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label>
-            <span>Notes</span>
-            <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-          </label>
-          <div className="modal-actions">
-            {formError && <p className="form-error">{formError}</p>}
-            <button type="submit" className="primary-button" disabled={saving}>{saving ? 'Saving…' : 'Record Payment'}</button>
-          </div>
-        </form>
-      </Modal>
+      <RecordPaymentModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        rentals={rentals}
+        preset={preset}
+        onSaved={loadAll}
+      />
     </div>
   );
 }
