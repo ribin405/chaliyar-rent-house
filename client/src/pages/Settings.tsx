@@ -111,7 +111,7 @@ export function Settings() {
           </label>
           <label>
             <span>Shop Phone</span>
-            <input value={shop.shop_phone} onChange={(event) => setShop({ ...shop, shop_phone: event.target.value })} required />
+            <input inputMode="tel" value={shop.shop_phone} onChange={(event) => setShop({ ...shop, shop_phone: event.target.value })} required />
           </label>
           <label>
             <span>Shop Address</span>

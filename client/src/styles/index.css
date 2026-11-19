@@ -394,6 +394,7 @@ a { color: inherit; text-decoration: none; }
 .segmented button.alert .count { background: #fee2e2; color: #b91c1c; }
 
 .desk-search { display: flex; align-items: center; gap: 8px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 0 12px; margin-bottom: 6px; color: #64748b; }
+.form-grid .desk-search { flex-direction: row; align-items: center; gap: 8px; }
 .desk-search:focus-within { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14); }
 .desk-search input { flex: 1; border: none; outline: none; padding: 10px 0; background: transparent; min-width: 0; }
 
@@ -503,3 +504,140 @@ a { color: inherit; text-decoration: none; }
 .new-category-button { flex-shrink: 0; border: 1px dashed #2563eb; background: #eff6ff; color: #1d4ed8; border-radius: 999px; padding: 8px 16px; font-weight: 600; }
 .new-category-button:hover, .new-category-button.active { background: #2563eb; border-style: solid; color: white; }
 .form-grid .new-category-row input { flex: 1; min-width: 180px; }
+
+/* ───────────────────────── Phone usability ─────────────────────────
+   Kept at the end so it overrides the earlier, coarser mobile rules. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.th-short { display: none; }
+button, a, input, select, textarea, label { touch-action: manipulation; }
+.back-button svg { flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  /* Header: one compact sticky strip ([menu][back] Title, then search) instead of
+     a third of the screen. "Create Rental" floats at the bottom so it is always
+     one tap away; who is signed in is already shown in the menu. */
+  .main-panel { padding: 0 12px calc(96px + env(safe-area-inset-bottom)); gap: 12px; }
+  .topbar {
+    position: sticky; top: 0; z-index: 30;
+    flex-direction: column; align-items: stretch; gap: 8px;
+    margin: 0 -12px; padding: 10px 12px;
+    background: #f4f7fb; border-bottom: 1px solid #e2e8f0;
+  }
+  .topbar .eyebrow { display: none; }
+  .topbar h1 { margin: 0; font-size: 1.3rem; line-height: 1.2; }
+  .topbar-title-wrap { gap: 8px; }
+  .topbar-actions { width: 100%; flex-wrap: nowrap; gap: 8px; }
+  .topbar-actions .global-search { flex: 1; min-width: 0; width: auto; }
+  .user-chip { display: none; }
+  .topbar-create {
+    position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 40;
+    width: auto; min-height: 54px; padding: 0 22px; border-radius: 999px; font-weight: 700;
+    box-shadow: 0 10px 28px rgba(37, 99, 235, 0.4);
+  }
+  .back-button { width: 42px; height: 42px; min-height: 0; padding: 0; justify-content: center; border-radius: 12px; }
+  .back-button span { display: none; }
+
+  /* Comfortable thumb targets, and inputs that don't feel cramped. */
+  .primary-button, .ghost-button, .text-button { min-height: 44px; }
+  .primary-button.small, .ghost-button.small { min-height: 40px; padding: 8px 14px; }
+  .text-button { padding: 10px 8px; }
+  .link-button, .group-toggle { min-height: 40px; display: inline-flex; align-items: center; }
+  .icon-link { width: 40px; height: 40px; border-radius: 12px; }
+  .contact-links { gap: 8px; }
+  .segmented button, .category-tabs button { min-height: 40px; padding: 8px 14px; }
+  .qty-stepper button { width: 44px; height: 44px; }
+  .form-grid .qty-stepper input { width: 56px; min-height: 0; }
+  .toolbar input, .toolbar select, .auth-form input, .form-grid input, .form-grid select { min-height: 46px; }
+  .nav-item { padding: 14px; }
+  .rentals-table .row-check input { width: 30px; height: 30px; }
+
+  /* Lists scroll with the page, not in a small box of their own. */
+  .desk-list, .day-detail-list { max-height: none; overflow: visible; }
+
+  /* Pop-up forms: Close and Save stay reachable however long the form is. */
+  .modal-card {
+    max-height: 92dvh; max-height: 92vh;
+    padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+  }
+  @supports (height: 1dvh) { .modal-card { max-height: 92dvh; } }
+  .modal-card > .panel-title-row:first-child {
+    position: sticky; top: 0; z-index: 3; margin: 0 -16px 8px; padding: 10px 16px;
+    background: #fff; border-bottom: 1px solid #eef2f7; flex-wrap: nowrap; align-items: center;
+  }
+  .modal-card > .panel-title-row:first-child h3 { margin: 0; min-width: 0; font-size: 1.05rem; line-height: 1.25; }
+  .modal-card > .panel-title-row:first-child .text-button { flex-shrink: 0; }
+  .modal-actions {
+    position: sticky; bottom: calc(-16px - env(safe-area-inset-bottom)); z-index: 3;
+    margin: 4px -16px 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: #fff; border-top: 1px solid #eef2f7; flex-wrap: wrap;
+  }
+  .modal-actions .primary-button { flex: 1; min-width: 150px; }
+
+  /* Tables become cards: one per row, each line "LABEL  value". The labels are
+     filled in from the column headings by useTableLabels(). */
+  .table-scroll { overflow-x: visible; }
+  .data-table, .data-table tbody, .data-table tfoot { display: block; width: 100%; min-width: 0; }
+  .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .data-table tr {
+    display: block; position: relative; margin-bottom: 10px; padding: 4px 14px;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  }
+  .data-table td {
+    display: flex; justify-content: space-between; align-items: center; gap: 14px;
+    padding: 9px 0; border-bottom: 1px solid #f1f5f9; text-align: right; min-width: 0; overflow-wrap: anywhere;
+  }
+  .data-table td:last-child { border-bottom: none; }
+  .data-table td::before {
+    content: attr(data-label); flex: 0 0 36%; max-width: 40%; text-align: left;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #64748b;
+  }
+  .data-table td:not([data-label])::before { content: none; }
+  .data-table td:empty { display: none; }
+  .data-table td[colspan] { display: block; padding: 18px 0; text-align: center; color: #64748b; }
+  .data-table tfoot tr { background: #f8fafc; }
+  .data-table td[data-dash] { display: none; }
+  .data-table td .status-badge { white-space: nowrap; flex-shrink: 0; }
+  /* The actions cell: no label, just a row of big tappable buttons. */
+  .data-table td[data-label="Actions"] { justify-content: stretch; flex-wrap: wrap; gap: 8px; padding: 12px 0 8px; }
+  .data-table td[data-label="Actions"]::before { display: none; }
+  .data-table td[data-label="Actions"] .text-button {
+    flex: 1 1 auto; min-height: 44px; padding: 10px 14px; text-align: center;
+    background: #eff6ff; border-radius: 10px; font-weight: 600;
+  }
+  .data-table td[data-label="Actions"] .text-button.danger { background: #fef2f2; }
+  .rentals-table td[data-label="Registered"] { display: none; }
+
+  /* Filters: search on its own line, the rest side by side. */
+  .toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .toolbar > :first-child, .toolbar > button, .toolbar > :nth-child(2):last-child { grid-column: 1 / -1; }
+
+  /* Small number grids (e.g. Inventory by Category) read better as a real table. */
+  .data-table.compact-table { display: table; }
+  .data-table.compact-table thead { display: table-header-group; position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .data-table.compact-table tbody { display: table-row-group; }
+  .data-table.compact-table tfoot { display: table-footer-group; }
+  .data-table.compact-table tr { display: table-row; margin: 0; padding: 0; border: none; border-radius: 0; box-shadow: none; background: transparent; }
+  .data-table.compact-table th, .data-table.compact-table td { display: table-cell; padding: 8px 3px; text-align: center; border-bottom: 1px solid #e2e8f0; font-size: 0.82rem; }
+  .data-table.compact-table th { font-size: 0.66rem; letter-spacing: 0.03em; text-transform: uppercase; color: #64748b; }
+  .data-table.compact-table th:first-child, .data-table.compact-table td:first-child { text-align: left; padding-left: 0; }
+  .data-table.compact-table td::before { content: none; }
+  .data-table.compact-table .status-badge { padding: 2px 8px; font-size: 0.74rem; }
+  .data-table.compact-table tfoot tr { background: #f8fafc; }
+  .th-full { display: none; }
+  .th-short { display: inline; }
+
+  /* Rentals list: tick box sits in a gutter, an item inside an invoice is indented. */
+  .rentals-table tr { padding-left: 52px; }
+  .rentals-table td.row-check { position: absolute; left: 12px; top: 10px; width: auto; padding: 0; border: none; display: block; }
+  .rentals-table td.row-check::before { content: none; }
+  .rentals-table tr td, .rentals-table tr.selected td, .rental-group-row td { background: transparent; }
+  .rentals-table tr.selected { background: #eff6ff; border-color: #93c5fd; }
+  .rental-group-row { background: #f8fafc; }
+  .rental-child-row { margin-left: 16px; border-left: 4px solid #cbd5e1; }
+  .rentals-table .rental-child-row td:nth-child(4) { padding-left: 0; }
+  .rentals-table .rental-child-row td:nth-child(4)::before { content: attr(data-label); position: static; color: #64748b; }
+  .return-items-table th, .return-items-table td { white-space: normal; }
+  .return-items-table tr { padding-left: 14px; }
+  .form-grid .damage-input { max-width: 120px; }
+}

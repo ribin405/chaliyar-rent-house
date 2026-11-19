@@ -251,14 +251,14 @@ export function Equipment() {
           <h3>Inventory by Category</h3>
         </div>
         <div className="table-scroll">
-          <table className="data-table">
+          <table className="data-table compact-table">
             <thead>
               <tr>
                 <th>Category</th>
-                <th>Available</th>
-                <th>Reserved</th>
+                <th><span className="th-full">Available</span><span className="th-short">Avail.</span></th>
+                <th><span className="th-full">Reserved</span><span className="th-short">Resvd.</span></th>
                 <th>Rented</th>
-                <th>Maintenance</th>
+                <th><span className="th-full">Maintenance</span><span className="th-short">Maint.</span></th>
                 <th>Total</th>
               </tr>
             </thead>

@@ -804,6 +804,7 @@ export function Rentals() {
               <span>Phone</span>
               <input
                 list="customer-phone-options"
+                inputMode="tel"
                 value={form.customer_phone}
                 onChange={(event) => handlePhoneChange(event.target.value)}
                 placeholder="Type or pick an existing number"

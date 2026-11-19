@@ -202,11 +202,11 @@ export function Customers() {
           </label>
           <label>
             <span>Phone Number</span>
-            <input value={form.phone_number} onChange={(event) => setForm({ ...form, phone_number: event.target.value })} required />
+            <input inputMode="tel" value={form.phone_number} onChange={(event) => setForm({ ...form, phone_number: event.target.value })} required />
           </label>
           <label>
             <span>Alternate Phone</span>
-            <input value={form.alternate_phone} onChange={(event) => setForm({ ...form, alternate_phone: event.target.value })} />
+            <input inputMode="tel" value={form.alternate_phone} onChange={(event) => setForm({ ...form, alternate_phone: event.target.value })} />
           </label>
           <label>
             <span>Address</span>

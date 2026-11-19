@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { GlobalSearch } from './GlobalSearch';
+import { useTableLabels } from '../lib/useTableLabels';
 
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -26,6 +27,7 @@ export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useTableLabels();
 
   const navItems = user?.role === 'owner'
     ? [...NAV_ITEMS, ...OWNER_NAV_ITEMS]
