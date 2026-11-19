@@ -9,6 +9,11 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Front-desk staff open this app every day, so a short token meant a surprise
+// "token expired" after a night. Revoking someone still takes effect at once:
+// authenticate() re-checks the account in the database on every request.
+const TOKEN_LIFETIME = process.env.JWT_EXPIRES_IN || '30d';
+
 const loginSchema = Joi.object({
   username: Joi.string().trim().required(),
   password: Joi.string().required(),
@@ -29,7 +34,7 @@ router.post('/login', validate(loginSchema), async (req, res) => {
     return res.status(403).json({ success: false, message: 'Account has been deactivated' });
   }
 
-  const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET || 'dev-secret', { expiresIn: '8h' });
+  const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET || 'dev-secret', { expiresIn: TOKEN_LIFETIME });
   const safeUser = { id: user.id, username: user.username, full_name: user.full_name, role: user.role };
 
   res.json({ success: true, message: 'Login successful', token, user: safeUser, data: { token, user: safeUser } });

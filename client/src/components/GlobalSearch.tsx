@@ -13,19 +13,23 @@ interface ResultItem {
   title: string;
   subtitle: string;
   to: string;
-  search: string;
+  // What the destination page is told to show (see each page's nav state).
+  state: Record<string, unknown>;
 }
+
+const CUSTOMERS = 'Customers';
 
 const toItems = (results: SearchResults): Array<{ heading: string; items: ResultItem[] }> => [
   {
-    heading: 'Customers',
+    heading: CUSTOMERS,
+    // A customer opens their rentals, where items still out can be returned.
     items: results.customers.map((customer) => ({
       key: `c-${customer.id}`,
       icon: Users,
       title: customer.full_name,
       subtitle: [customer.phone_number, customer.alternate_phone].filter(Boolean).join(' / '),
-      to: '/customers',
-      search: customer.phone_number,
+      to: '/rentals',
+      state: { customer: { name: customer.full_name, phone: customer.phone_number } },
     })),
   },
   {
@@ -36,7 +40,7 @@ const toItems = (results: SearchResults): Array<{ heading: string; items: Result
       title: item.name,
       subtitle: [item.category_name, item.status, item.location].filter(Boolean).join(' · '),
       to: '/equipment',
-      search: item.name,
+      state: { search: item.name },
     })),
   },
   {
@@ -47,7 +51,7 @@ const toItems = (results: SearchResults): Array<{ heading: string; items: Result
       title: `${rental.invoice_number} — ${rental.customer_name}`,
       subtitle: `${rental.equipment_name} · ${rental.customer_phone} · ${rental.status}`,
       to: '/rentals',
-      search: rental.invoice_number,
+      state: { search: rental.invoice_number },
     })),
   },
 ].filter((group) => group.items.length > 0);
@@ -60,9 +64,12 @@ export function GlobalSearch() {
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  // Customers come first; rentals/equipment matches are opt-in.
+  const [showOthers, setShowOthers] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setShowOthers(false);
     const term = query.trim();
     if (term.length < 2) {
       setResults(EMPTY_RESULTS);
@@ -97,11 +104,17 @@ export function GlobalSearch() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const groups = toItems(results);
+  const allGroups = toItems(results);
+  const customerGroup = allGroups.find((group) => group.heading === CUSTOMERS);
+  const otherGroups = allGroups.filter((group) => group.heading !== CUSTOMERS);
+  const otherCount = otherGroups.reduce((sum, group) => sum + group.items.length, 0);
+  // With no customer match there's nothing else to lead with, so show the rest straight away.
+  const othersVisible = showOthers || !customerGroup;
+  const groups = othersVisible ? allGroups : [customerGroup];
   const flatItems = groups.flatMap((group) => group.items);
 
   const select = (item: ResultItem) => {
-    navigate(item.to, { state: { search: item.search } });
+    navigate(item.to, { state: item.state });
     setOpen(false);
     setQuery('');
   };
@@ -166,6 +179,15 @@ export function GlobalSearch() {
               })}
             </div>
           ))}
+          {customerGroup && otherCount > 0 && (
+            <button
+              type="button"
+              className="global-search-more"
+              onClick={() => setShowOthers((shown) => !shown)}
+            >
+              {showOthers ? 'Hide other results' : `Show other results (${otherCount})`}
+            </button>
+          )}
         </div>
       )}
     </div>

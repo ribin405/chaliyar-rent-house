@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Wrench, ClipboardList, CalendarDays, Wallet, FileBarChart, Settings as SettingsIcon,
-  Menu, LogOut, Zap, Plus,
+  Menu, LogOut, Zap, Plus, ArrowLeft,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { GlobalSearch } from './GlobalSearch';
@@ -35,6 +35,14 @@ export function Layout() {
     logout();
     navigate('/login');
   };
+
+  // 'default' is the key of the first entry in this tab's history, i.e. nothing
+  // inside the app to go back to (e.g. a page opened or refreshed directly).
+  const hasHistory = location.key !== 'default';
+  const handleBack = () => (hasHistory ? navigate(-1) : navigate('/dashboard'));
+  // The dashboard is the home page: the only thing "back" could reach from it is
+  // the login screen (the app lands there right after sign-in), so don't offer it.
+  const showBack = location.pathname !== '/dashboard';
 
   return (
     <>
@@ -83,6 +91,12 @@ export function Layout() {
               >
                 <Menu size={20} />
               </button>
+              {showBack && (
+                <button type="button" className="ghost-button back-button" onClick={handleBack} aria-label="Go back">
+                  <ArrowLeft size={16} />
+                  <span>Back</span>
+                </button>
+              )}
               <div>
                 <p className="eyebrow">Operations Center</p>
                 <h1>{navItems.find((item) => item.to === location.pathname)?.label ?? 'Rental ERP'}</h1>

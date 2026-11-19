@@ -59,6 +59,8 @@ interface NavState {
   equipment?: PresetEquipment;
   search?: string;
   returnInvoice?: string;
+  // Global search hands over a customer: show what they have out, ready to return.
+  customer?: { name: string; phone: string };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -124,6 +126,12 @@ export function Rentals() {
   const [dateFilter, setDateFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | RentalStatus>('All');
 
+  // Set when arriving from a customer in the global search. While set, the list
+  // is that one customer's rentals, limited to items still out unless asked otherwise.
+  const [focusCustomer, setFocusCustomer] = useState<{ name: string; phone: string } | null>(null);
+  const [showReturned, setShowReturned] = useState(false);
+  const [pendingExpandPhone, setPendingExpandPhone] = useState<string | null>(null);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -179,6 +187,7 @@ export function Rentals() {
       openCreate(state.equipment);
     }
     if (state?.returnInvoice) {
+      setFocusCustomer(null);
       setSearch(state.returnInvoice);
       setStatusFilter('All');
       setDateFilter('');
@@ -186,13 +195,22 @@ export function Rentals() {
       setPendingReturnInvoice(state.returnInvoice);
     }
     if (state?.search) {
+      setFocusCustomer(null);
       setSearch(state.search);
       setStatusFilter('All');
       setDateFilter('');
       // Global search hands over an invoice number; open that group.
       setExpandedInvoices(new Set([state.search]));
     }
-    if (state?.openCreate || state?.search || state?.returnInvoice) {
+    if (state?.customer) {
+      setFocusCustomer(state.customer);
+      setShowReturned(false);
+      setSearch(state.customer.phone);
+      setStatusFilter('All');
+      setDateFilter('');
+      setPendingExpandPhone(state.customer.phone);
+    }
+    if (state?.openCreate || state?.search || state?.returnInvoice || state?.customer) {
       navigate(location.pathname, { replace: true, state: {} });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -207,7 +225,28 @@ export function Rentals() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rentals, pendingReturnInvoice, loading]);
 
+  // Open every invoice of the chosen customer that still has something out, so
+  // the items to return are visible straight away.
+  useEffect(() => {
+    if (!pendingExpandPhone || loading) return;
+    const invoices = rentals
+      .filter((rental) => rental.customer_phone === pendingExpandPhone && isOpen(rental))
+      .map((rental) => rental.invoice_number);
+    setExpandedInvoices(new Set(invoices));
+    setPendingExpandPhone(null);
+  }, [rentals, pendingExpandPhone, loading]);
+
   const filteredRentals = useMemo(() => rentals.filter((rental) => {
+    if (focusCustomer) {
+      // Exactly this customer (not just a phone-number substring), items still out unless asked.
+      return rental.customer_phone === focusCustomer.phone
+        && (showReturned || isOpen(rental))
+        && (statusFilter === 'All' || rental.status === statusFilter)
+        && (!dateFilter
+          || rental.rental_date === dateFilter
+          || rental.expected_return_date === dateFilter
+          || rental.actual_return_date === dateFilter);
+    }
     const haystack = `${rental.invoice_number} ${rental.customer_name} ${rental.customer_phone} ${rental.equipment_name} ${rental.rental_date} ${rental.expected_return_date} ${rental.actual_return_date ?? ''}`.toLowerCase();
     const matchesSearch = haystack.includes(search.toLowerCase());
     const matchesDate = !dateFilter
@@ -216,7 +255,18 @@ export function Rentals() {
       || rental.actual_return_date === dateFilter;
     const matchesStatus = statusFilter === 'All' || rental.status === statusFilter;
     return matchesSearch && matchesDate && matchesStatus;
-  }), [rentals, search, dateFilter, statusFilter]);
+  }), [rentals, search, dateFilter, statusFilter, focusCustomer, showReturned]);
+
+  // Headline numbers for the focused customer's banner.
+  const focusSummary = useMemo(() => {
+    if (!focusCustomer) return null;
+    const theirs = rentals.filter((rental) => rental.customer_phone === focusCustomer.phone);
+    return {
+      out: theirs.filter(isOpen).length,
+      overdue: theirs.filter((rental) => rental.status === 'overdue').length,
+      returned: theirs.filter((rental) => rental.status === 'completed').length,
+    };
+  }, [rentals, focusCustomer]);
 
   // Groups keep the list's newest-first order (by each invoice's first match).
   const groups = useMemo(() => {
@@ -557,7 +607,7 @@ export function Rentals() {
           type="text"
           placeholder="Search by invoice, customer, phone, or equipment"
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => { setFocusCustomer(null); setSearch(event.target.value); }}
         />
         <input
           type="date"
@@ -576,7 +626,7 @@ export function Rentals() {
           <button
             type="button"
             className="ghost-button"
-            onClick={() => { setSearch(''); setDateFilter(''); setStatusFilter('All'); }}
+            onClick={() => { setFocusCustomer(null); setSearch(''); setDateFilter(''); setStatusFilter('All'); }}
           >
             Clear Filters
           </button>
@@ -584,6 +634,39 @@ export function Rentals() {
       </div>
 
       {error && <p className="form-error">{error}</p>}
+
+      {focusCustomer && focusSummary && (
+        <div className="customer-focus">
+          <div className="customer-focus-info">
+            <strong>{focusCustomer.name}</strong>
+            <small>{focusCustomer.phone}</small>
+            <span className="customer-focus-counts">
+              {focusSummary.out === 0
+                ? 'Nothing out — everything has been returned'
+                : `${focusSummary.out} item${focusSummary.out > 1 ? 's' : ''} out`}
+              {focusSummary.overdue > 0 && <span className="status-badge overdue">{focusSummary.overdue} overdue</span>}
+            </span>
+            {focusSummary.out > 0 && (
+              <small>Tick the items being handed back and press Return Selected, or use Return on a row or invoice.</small>
+            )}
+          </div>
+          <div className="customer-focus-actions">
+            {focusSummary.returned > 0 && (
+              <label className="checkbox-row">
+                <input type="checkbox" checked={showReturned} onChange={(event) => setShowReturned(event.target.checked)} />
+                <span>Show returned items ({focusSummary.returned})</span>
+              </label>
+            )}
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => { setFocusCustomer(null); setSearch(''); }}
+            >
+              Show all rentals
+            </button>
+          </div>
+        </div>
+      )}
 
       {selectedItems.length > 0 && (
         <div className="selection-bar">
@@ -700,7 +783,13 @@ export function Rentals() {
                 ];
               })}
               {!loading && groups.length === 0 && (
-                <tr><td colSpan={11}>No rentals match your filters.</td></tr>
+                <tr>
+                  <td colSpan={11}>
+                    {focusCustomer && !showReturned
+                      ? `No items are currently out for ${focusCustomer.name}.`
+                      : 'No rentals match your filters.'}
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

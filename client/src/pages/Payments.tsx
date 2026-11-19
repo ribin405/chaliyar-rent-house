@@ -8,9 +8,9 @@ import type { Payment, Rental } from '../types';
 
 const EMPTY_FORM = {
   invoice_number: '',
-  amount: '',
+  actual_amount: '',
   discount: '',
-  payment_method: 'cash' as const,
+  payment_method: 'cash' as 'cash' | 'upi',
   payment_type: 'rent' as const,
   notes: '',
 };
@@ -83,7 +83,7 @@ export function Payments() {
     setForm({
       ...EMPTY_FORM,
       invoice_number: preset?.invoice ?? '',
-      amount: preset?.amount ? String(preset.amount) : '',
+      actual_amount: preset?.amount ? String(preset.amount) : '',
     });
     setFormError('');
     setModalOpen(true);
@@ -101,16 +101,24 @@ export function Payments() {
 
   const selectedInvoiceItems = form.invoice_number ? itemsByInvoice(form.invoice_number) : [];
 
+  // The cashier types the actual amount and any discount; what actually changes
+  // hands (the amount) is the difference, which is what gets recorded.
+  const actualAmount = Number(form.actual_amount) || 0;
+  const discount = Number(form.discount) || 0;
+  const amount = Math.round((actualAmount - discount) * 100) / 100;
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const amount = Number(form.amount) || 0;
-    const discount = Number(form.discount) || 0;
     if (!form.invoice_number) {
       setFormError('Select an invoice.');
       return;
     }
-    if (amount <= 0 && discount <= 0) {
-      setFormError('Enter a payment amount or a discount.');
+    if (actualAmount <= 0) {
+      setFormError('Enter the actual amount.');
+      return;
+    }
+    if (discount > actualAmount) {
+      setFormError('The discount cannot be more than the actual amount.');
       return;
     }
     setSaving(true);
@@ -152,7 +160,7 @@ export function Payments() {
         <div className="table-scroll">
           <table className="data-table">
             <thead>
-              <tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Items</th><th>Type</th><th>Method</th><th>Amount</th><th>Discount</th></tr>
+              <tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Items</th><th>Type</th><th>Method</th><th>Amount</th><th>Discount</th><th>Actual Amount</th></tr>
             </thead>
             <tbody>
               {payments.map((payment) => (
@@ -163,12 +171,14 @@ export function Payments() {
                   <td>{itemsByInvoice(payment.invoice_number).map((item) => itemLabel(item.equipment_name, item.quantity)).join(', ') || '—'}</td>
                   <td style={{ textTransform: 'capitalize' }}>{payment.payment_type}</td>
                   <td style={{ textTransform: 'capitalize' }}>{payment.payment_method.replace('_', ' ')}</td>
-                  <td>₹ {payment.amount.toLocaleString()}</td>
+                  <td><strong>₹ {payment.amount.toLocaleString()}</strong></td>
                   <td>{payment.discount > 0 ? `₹ ${payment.discount.toLocaleString()}` : '—'}</td>
+                  {/* Stored as amount (received) + discount, so the actual amount is their sum. */}
+                  <td>₹ {(payment.amount + payment.discount).toLocaleString()}</td>
                 </tr>
               ))}
               {!loading && payments.length === 0 && (
-                <tr><td colSpan={8}>No payments recorded yet.</td></tr>
+                <tr><td colSpan={9}>No payments recorded yet.</td></tr>
               )}
             </tbody>
           </table>
@@ -194,12 +204,16 @@ export function Payments() {
             </p>
           )}
           <label className="half">
-            <span>Amount</span>
-            <input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
+            <span>Actual Amount</span>
+            <input type="number" min="0" step="0.01" value={form.actual_amount} onChange={(event) => setForm({ ...form, actual_amount: event.target.value })} />
           </label>
           <label className="half">
             <span>Discount</span>
             <input type="number" min="0" step="0.01" value={form.discount} onChange={(event) => setForm({ ...form, discount: event.target.value })} />
+          </label>
+          <label>
+            <span>Amount (Actual Amount − Discount)</span>
+            <input type="text" value={form.actual_amount || form.discount ? `₹ ${Math.max(0, amount).toLocaleString()}` : ''} readOnly tabIndex={-1} className="computed-field" placeholder="Calculated automatically" />
           </label>
           <label className="half">
             <span>Payment Type</span>
@@ -209,16 +223,22 @@ export function Payments() {
               <option value="refund">Refund</option>
             </select>
           </label>
-          <label className="half">
-            <span>Payment Method</span>
-            <select value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value as typeof form.payment_method })}>
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="upi">UPI</option>
-              <option value="bank_transfer">Bank Transfer</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
+          <div className="field-block half">
+            <span>Paid by</span>
+            <div className="segmented large" role="group" aria-label="Paid by">
+              {([['cash', 'Cash'], ['upi', 'UPI']] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={form.payment_method === value ? 'active' : ''}
+                  aria-pressed={form.payment_method === value}
+                  onClick={() => setForm({ ...form, payment_method: value })}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <label>
             <span>Notes</span>
             <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />

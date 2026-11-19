@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export function Login() {
-  const { user, login } = useAuth();
+  const { user, login, sessionExpired } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -62,8 +62,12 @@ export function Login() {
           <button type="submit" className="primary-button" disabled={submitting}>
             {submitting ? 'Signing in…' : 'Sign In'}
           </button>
-          <p className="login-message" role={error ? 'alert' : undefined} style={error ? { color: '#dc2626' } : undefined}>
-            {error || 'Secure staff access only.'}
+          <p
+            className="login-message"
+            role={error || sessionExpired ? 'alert' : undefined}
+            style={error ? { color: '#dc2626' } : sessionExpired ? { color: '#b45309' } : undefined}
+          >
+            {error || (sessionExpired ? 'Your session expired. Please sign in again.' : 'Secure staff access only.')}
           </p>
         </form>
       </div>
